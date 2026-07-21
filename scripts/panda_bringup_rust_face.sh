@@ -18,8 +18,13 @@ FACE_NAME=gptimage-gateway-rs-mvp
 LOGDIR="$ROOT/data/runlogs"
 mkdir -p "$ROOT/bin" "$ROOT/secrets" "$LOGDIR"
 
-if [[ ! -x "$BIN" ]]; then
+if [[ ! -f "$BIN" ]]; then
   echo "missing linux binary: $BIN (build off-box; do not cargo build on panda)"
+  exit 2
+fi
+chmod +x "$BIN" || true
+if [[ ! -x "$BIN" ]]; then
+  echo "binary not executable after chmod: $BIN"
   exit 2
 fi
 if [[ ! -f "$PIN" ]]; then
