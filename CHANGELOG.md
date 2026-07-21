@@ -3,7 +3,9 @@
 ## Unreleased
 
 + [功能] 2026-07-21：Rust face 接管 `:8013`——`gptimage-gateway-rs` 编排 OpenAI HTTP + `IMAGE_GLOBAL_CONCURRENCY` 信号量；Python `protocol_bridge` 仅侧车 `:19001`（curl_cffi/PoW/SSE）。目标：1/3 并发文生图单张 40–60s。
++ [修复] 2026-07-21：helper 默认 `make_backend` 直连（`MVP_FORCE_POOL_STICKY` 才走号池 sticky）；避免独立进程 `get_available_access_token` sticky 失败后落到空 ready（`no available image quota`）。
 + [功能] 2026-07-21：helper `GET /v1/internal/accounts/candidates`；Rust `X-Preferred-Account-Email` + 启动时种子号池；`scripts/panda_bringup_rust_face.sh` / `mvp_rust_conc_matrix.py`。
++ [部署] 2026-07-21：私有仓 `croppedtravelleralex/gptimage-gateway-rs`；linux amd64 产物 `bin/gptimage-gateway-rs`；panda `/root/gptimage-gateway-rs` git pull + bringup（生产 `:8012` 不动）。
 + [修复] 2026-07-21：纠正 CF 归因——对照生产后，MVP 自研问题是绕过 `get_available_access_token` 槽位 + 生图强制 `_bootstrap()`；已改为 `pool_sticky` 取号并 `_ensure_bootstrap()`。A/B 当时生产同步生图同样出现 CF/挂起，并非「多 IP 并发必然 CF」。
 + [功能] 2026-07-21：`:8013` 多号——`X-Preferred-Account-Email` 从号池解析（独立 proxy）；`GET /v1/accounts/candidates`；同号锁、异号可并行。单 pin 默认路径不变。
 + [验证] 2026-07-21：多号并发=2——独立出口已生效；健康号成功 ~36–38s；同波次另一路常 CF403 / wall_timeout。全量 4 号并发曾 0/4（上游 CF）。`self=0`。
