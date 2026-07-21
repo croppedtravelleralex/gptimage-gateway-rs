@@ -95,7 +95,7 @@ def one_image(email: str, tag: str) -> dict:
         data = j.get("data") or []
         if data and isinstance(data[0], dict):
             b64_len = len(str(data[0].get("b64_json") or ""))
-            err_obj = j.get("error") or {}
+        err_obj = j.get("error") or {}
         if isinstance(err_obj, dict):
             fault = err_obj.get("fault") or err_obj.get("code")
             if err_obj.get("message"):
