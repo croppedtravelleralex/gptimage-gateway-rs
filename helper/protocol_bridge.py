@@ -368,10 +368,19 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
     wall = float(os.environ.get("MVP_IMAGE_WALL_SECS", "70"))
     prefer = (body.account.email or "").strip()
     token_in = (body.account.access_token or "").strip()
+    force_sticky = str(os.environ.get("MVP_FORCE_POOL_STICKY", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     token = ""
     api: OpenAIBackendAPI | None = None
     slot_released = False
-    path = "direct_token" if token_in else "pool_sticky"
+    # Default: direct make_backend (pool identity by email). Avoid helper-local
+    # get_available_access_token which silently falls through sticky → empty ready.
+    use_direct = (not force_sticky) or bool(token_in)
+    path = "direct_token" if use_direct else "pool_sticky"
     email_lock: threading.Lock | None = None
 
     def _arm_wall() -> None:
@@ -387,11 +396,7 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
         if not prefer:
             raise RuntimeError("image requires account email")
 
-        if token_in:
-            # Rust face already resolved unique-proxy candidates + live quota.
-            # Bypass get_available_access_token: helper's separate process + shared
-            # SQLite often fails sticky preferred and falls through to an empty ready
-            # set ("no available image quota") even when /me remaining is healthy.
+        if use_direct:
             email_lock = _lock_for_email(prefer)
             if not email_lock.acquire(
                 blocking=True,
