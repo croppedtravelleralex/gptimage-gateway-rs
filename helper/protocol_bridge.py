@@ -52,10 +52,25 @@ from services.proxy_service import proxy_settings  # noqa: E402
 
 app = FastAPI(title="gptimage-gateway-rs-helper", version="0.1.0")
 
+# Per-email lock for direct-token image path (Rust face). Avoids double-hit on
+# the same account without touching prod get_available_access_token slots.
+_email_locks_guard = threading.Lock()
+_email_locks: dict[str, threading.Lock] = {}
+
+
+def _lock_for_email(email: str) -> threading.Lock:
+    key = (email or "").strip().lower() or "_"
+    with _email_locks_guard:
+        lock = _email_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _email_locks[key] = lock
+        return lock
+
 
 class AccountIn(BaseModel):
     email: str = ""
-    # Optional when email is in gptimage pool — execute_image pool_sticky resolves token.
+    # When set (Rust candidates), execute_image uses direct_token path.
     access_token: str = ""
     device_id: str | None = None
     proxy: str | None = None
@@ -351,12 +366,13 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
     poll_timeout = min(30.0, float(os.environ.get("MVP_IMAGE_POLL_TIMEOUT_SECS", "30")))
     cancel_event = threading.Event()
     wall = float(os.environ.get("MVP_IMAGE_WALL_SECS", "70"))
-    # Align with prod concurrency slots, but keep sticky preferred email (no silent
-    # fallback to another account). acquire → OpenAIBackendAPI(token) → stream → release.
     prefer = (body.account.email or "").strip()
+    token_in = (body.account.access_token or "").strip()
     token = ""
     api: OpenAIBackendAPI | None = None
     slot_released = False
+    path = "direct_token" if token_in else "pool_sticky"
+    email_lock: threading.Lock | None = None
 
     def _arm_wall() -> None:
         if cancel_event.wait(timeout=max(5.0, wall)):
@@ -369,21 +385,35 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
         from services.account_service import account_service
 
         if not prefer:
-            raise RuntimeError("image requires account email for pool sticky acquire")
-        token = account_service.get_available_access_token(preferred_email=prefer)
-        got = account_service.get_account(token) or {}
-        got_email = str(got.get("email") or "").strip().lower()
-        if got_email != prefer.lower():
-            # Sticky miss — do not silently burn another account.
-            try:
-                account_service.release_image_slot(token)
-            except Exception:
-                pass
-            token = ""
-            raise RuntimeError(
-                f"preferred sticky miss: wanted={prefer} got={got.get('email')}"
-            )
-        api = OpenAIBackendAPI(access_token=token)
+            raise RuntimeError("image requires account email")
+
+        if token_in:
+            # Rust face already resolved unique-proxy candidates + live quota.
+            # Bypass get_available_access_token: helper's separate process + shared
+            # SQLite often fails sticky preferred and falls through to an empty ready
+            # set ("no available image quota") even when /me remaining is healthy.
+            email_lock = _lock_for_email(prefer)
+            if not email_lock.acquire(
+                blocking=True,
+                timeout=float(os.environ.get("MVP_EMAIL_LOCK_SECS", "90")),
+            ):
+                raise RuntimeError(f"email lock timeout: {prefer}")
+            api = make_backend(body.account)
+        else:
+            token = account_service.get_available_access_token(preferred_email=prefer)
+            got = account_service.get_account(token) or {}
+            got_email = str(got.get("email") or "").strip().lower()
+            if got_email != prefer.lower():
+                try:
+                    account_service.release_image_slot(token)
+                except Exception:
+                    pass
+                token = ""
+                raise RuntimeError(
+                    f"preferred sticky miss: wanted={prefer} got={got.get('email')}"
+                )
+            api = OpenAIBackendAPI(access_token=token)
+
         api.cancel_event = cancel_event
         outs = list(
             stream_image_outputs(
@@ -400,17 +430,25 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
             )
         )
         result = collect_image_outputs(outs)
-        cid = next((getattr(o, "conversation_id", None) for o in outs if getattr(o, "conversation_id", None)), "") or ""
+        cid = next(
+            (
+                getattr(o, "conversation_id", None)
+                for o in outs
+                if getattr(o, "conversation_id", None)
+            ),
+            "",
+        ) or ""
         data = result.get("data") or [{}]
         b64 = ""
         if data and isinstance(data[0], dict):
             b64 = str(data[0].get("b64_json") or "")
         ok = len(b64) > 1000
-        try:
-            account_service.mark_image_result(token, bool(ok))
-            slot_released = True
-        except Exception:
-            pass
+        if token:
+            try:
+                account_service.mark_image_result(token, bool(ok))
+                slot_released = True
+            except Exception:
+                pass
         return {
             "ok": ok,
             "b64_json": b64 if ok else None,
@@ -423,7 +461,7 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
                 "post_ready_secs": post_ready,
                 "poll_timeout_secs": poll_timeout,
                 "wall_secs": wall,
-                "path": "pool_sticky",
+                "path": path,
                 "preferred_email": prefer,
             },
         }
@@ -432,7 +470,11 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
         msg = str(e)
         timed = cancel_event.is_set() and ("cancel" in msg.lower() or "Cancel" in name)
         fault = _classify_fault(e)
-        if "concurrency limit" in msg.lower() or "sticky miss" in msg.lower():
+        if (
+            "concurrency limit" in msg.lower()
+            or "sticky miss" in msg.lower()
+            or "email lock" in msg.lower()
+        ):
             fault = "self"
         if token and not slot_released:
             try:
@@ -459,12 +501,17 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
                 "post_ready_secs": post_ready,
                 "poll_timeout_secs": poll_timeout,
                 "wall_secs": wall,
-                "path": "pool_sticky",
+                "path": path,
                 "preferred_email": prefer,
             },
         }
     finally:
         cancel_event.set()
+        if email_lock is not None:
+            try:
+                email_lock.release()
+            except Exception:
+                pass
         if token and not slot_released:
             try:
                 from services.account_service import account_service
@@ -477,7 +524,6 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
                 api.close()
             except Exception:
                 pass
-
 
 @app.post("/v1/internal/text")
 def run_text(body: TextIn) -> dict[str, Any]:
