@@ -51,7 +51,7 @@ docker run -d --name "$HELPER_NAME" --network host \
   -e PYTHONPATH=/opt/gws/helper \
   -w /opt/gws/helper \
   "$IMG" \
-  python3 protocol_bridge.py
+  /app/.venv/bin/python3 protocol_bridge.py
 
 # 2) Rust face — OpenAI HTTP + image semaphore (public :8013)
 nohup env \
