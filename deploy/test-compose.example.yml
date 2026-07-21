@@ -1,0 +1,40 @@
+# MVP test stack on panda (host networking for helper↔gateway).
+# Production chatgpt2api-local:8012 must stay untouched.
+#
+# Prep on host:
+#   1. export pin to /root/gptimage-gateway-rs/secrets/pin_account.json (not in git)
+#   2. HELPER uses GPTIMAGE_ROOT=/root/gptimage (code + config + curl_cffi via that venv/container)
+#
+# For first MVP bring-up we often run helper+gateway as systemd/nohup on host
+# rather than this compose, until linux binary is published via CI.
+# This file documents the target shape.
+
+services:
+  helper:
+    # Prefer host python with GPTIMAGE_ROOT; placeholder image for documentation.
+    image: python:3.12-slim
+    network_mode: host
+    working_dir: /opt/gptimage-gateway-rs
+    volumes:
+      - /root/gptimage-gateway-rs:/opt/gptimage-gateway-rs:ro
+      - /root/gptimage:/root/gptimage:ro
+    environment:
+      - GPTIMAGE_ROOT=/root/gptimage
+      - HELPER_LISTEN=127.0.0.1:19001
+      - CHATGPT2API_AUTH_KEY_FILE=/root/gptimage/config.json
+    command: ["python", "helper/protocol_bridge.py"]
+    restart: "no"
+
+  gateway:
+    image: ghcr.io/example/gptimage-gateway-rs:test
+    network_mode: host
+    environment:
+      - GATEWAY_LISTEN=0.0.0.0:8013
+      - HELPER_URL=http://127.0.0.1:19001
+      - PIN_ACCOUNT_FILE=/secrets/pin_account.json
+      - RUST_LOG=info
+    volumes:
+      - /root/gptimage-gateway-rs/secrets/pin_account.json:/secrets/pin_account.json:ro
+    depends_on:
+      - helper
+    restart: "no"

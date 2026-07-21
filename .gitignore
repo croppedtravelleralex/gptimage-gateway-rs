@@ -1,0 +1,13 @@
+/target/
+**/target/
+.data/
+data/runlogs/*
+!data/runlogs/README.md
+data/runlogs/*.secret*
+.env
+*.pem
+secrets/
+*.json.bak
+
+_*.b64
+*.b64

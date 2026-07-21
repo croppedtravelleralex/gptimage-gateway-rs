@@ -1,0 +1,14 @@
+# syntax=docker/dockerfile:1
+# Build linux/amd64 gateway binary for panda test (:8013). Never build on panda.
+FROM rust:1.85-bookworm AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock* ./
+COPY crates ./crates
+RUN cargo build --release -p gateway
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=build /src/target/release/gptimage-gateway-rs /usr/local/bin/gptimage-gateway-rs
+ENV GATEWAY_LISTEN=0.0.0.0:8013
+EXPOSE 8013
+ENTRYPOINT ["/usr/local/bin/gptimage-gateway-rs"]
