@@ -4,6 +4,7 @@
 
 ## 读什么
 
+0. [SOURCE.md](SOURCE.md) — **非 Rust 版本来源**（`../gptimage` / `:8012`）
 1. [plan.md](plan.md) — **进度 + Phase A→E 重写路线**（权威）
 2. [docs/00-contract.md](docs/00-contract.md) — 协议契约 / session 表 / error_class
 3. [docs/18-test-matrix.md](docs/18-test-matrix.md) — 验收矩阵

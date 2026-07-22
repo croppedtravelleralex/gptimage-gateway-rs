@@ -2,7 +2,18 @@
 
 独立新项目：用 Rust 重写 ChatGPT 逆向**数据面**（编排面 → 调度 → RCA → 生产 canary）。
 
-- **参考实现 / 生产**：`../gptimage`（Python `chatgpt2api`，Panda `:8012`）
+## 非 Rust 版本来源
+
+**对照 / 生产实现不在本仓**，而在同级 Python 项目：
+
+| | |
+|--|--|
+| 本地 | `D:\SelfMadeTool\AutoRegister\gptimage` |
+| 相对路径 | [`../gptimage`](../gptimage) |
+| Panda | `/root/gptimage` · 生产端口 **`:8012`**（`chatgpt2api-local`） |
+
+专页说明：[SOURCE.md](SOURCE.md)
+
 - **本仓测试面**：Panda **`:8013`（Rust）+ `:19001`（Python protocol helper）**
 - **施工总控 / 重写路线**：[plan.md](plan.md)
 - **契约**：[docs/00-contract.md](docs/00-contract.md)
