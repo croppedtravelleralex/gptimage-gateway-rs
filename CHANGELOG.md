@@ -2,6 +2,7 @@
 
 ## Unreleased
 
++ [文档] 2026-07-22：根目录新增 `SOURCE.md`，写明非 Rust 对照/生产来源为同级 `../gptimage`（本地 `D:\SelfMadeTool\AutoRegister\gptimage`，Panda `/root/gptimage` `:8012`）；`README`/`HANDOFF` 置顶引用。
 + [文档] 2026-07-22：同步 Rust Phase A 进度与 Phase A→E 重写路线——`plan.md` / `README` / `HANDOFF` / `docs/17` / `docs/18`；CF403 明确归号池/egress（gptimage `17`），不阻塞接线认定、阻塞 MVP 正式签字。
 + [功能] 2026-07-21：Rust face 接管 `:8013`——`gptimage-gateway-rs` 编排 OpenAI HTTP + `IMAGE_GLOBAL_CONCURRENCY` 信号量；Python `protocol_bridge` 仅侧车 `:19001`（curl_cffi/PoW/SSE）。目标：1/3 并发文生图单张 40–60s。
 + [修复] 2026-07-21：helper 默认 `make_backend` 直连（`MVP_FORCE_POOL_STICKY` 才走号池 sticky）；避免独立进程 `get_available_access_token` sticky 失败后落到空 ready（`no available image quota`）。
