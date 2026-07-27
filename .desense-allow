@@ -30,6 +30,9 @@ docs/22-audit-2026-07-26.md :: Bearer mvp-test
 scripts/mvp_rust_conc_matrix.py :: Bearer mvp-test
 scripts/_tmp_ab_image_once.py :: Bearer mvp-test
 
+# Gateway integration test fixture for AuthMode::ApiKey (not a real credential).
+crates/gateway/src/main.rs :: panda-align-key
+
 # --- NOT exempted (deliberately) --------------------------------------------
 # The real proton.me / outlook.com account addresses in scripts/_tmp_*.py,
 # CHANGELOG.md and docs/25-*.md are genuine findings. Redact or delete them;

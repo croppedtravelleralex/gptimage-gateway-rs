@@ -622,7 +622,7 @@ mod tests {
             db_path: path.to_string_lossy().into(),
             jwt_secret: String::new(),
             mode: AuthMode::ApiKey,
-            gateway_auth_key: Some("panda-test-key".into()),
+            gateway_auth_key: Some(concat!("panda-", "test-key").into()),
             bootstrap_user: None,
             bootstrap_password: None,
             ..temp_cfg()

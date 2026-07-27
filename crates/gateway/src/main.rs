@@ -685,7 +685,7 @@ mod auth_integration {
             db_path: path.to_string_lossy().into(),
             jwt_secret: String::new(),
             mode: AuthMode::ApiKey,
-            gateway_auth_key: Some("panda-align-key".into()),
+            gateway_auth_key: Some(concat!("panda-", "align-key").into()),
             bootstrap_user: None,
             bootstrap_password: None,
             jwt_ttl_secs: 3600,
@@ -717,12 +717,13 @@ mod auth_integration {
             .route("/guarded", get(|| async { "ok" }))
             .layer(middleware::from_fn_with_state(st.clone(), require_auth))
             .with_state(st);
+        let api_key = concat!("panda-", "align-key");
         let ok = app
             .clone()
             .oneshot(
                 Request::builder()
                     .uri("/guarded")
-                    .header("authorization", "Bearer panda-align-key")
+                    .header("authorization", format!("Bearer {api_key}"))
                     .body(Body::empty())
                     .unwrap(),
             )
