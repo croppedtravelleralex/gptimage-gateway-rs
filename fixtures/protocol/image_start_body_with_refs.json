@@ -1,0 +1,46 @@
+{
+  "action": "next",
+  "parent_message_id": "client-created-root",
+  "model": "gpt-image-2",
+  "client_prepare_state": "none",
+  "timezone_offset_min": -480,
+  "timezone": "Asia/Shanghai",
+  "conversation_mode": { "kind": "primary_assistant" },
+  "enable_message_followups": true,
+  "system_hints": ["picture_v2"],
+  "supports_buffering": true,
+  "supported_encodings": ["v1"],
+  "messages": [
+    {
+      "id": "fixture-user-message-id",
+      "author": { "role": "user" },
+      "content": {
+        "content_type": "multimodal_text",
+        "parts": [
+          {
+            "content_type": "image_asset_pointer",
+            "asset_pointer": "file-service://file-fixture-001",
+            "width": 1024,
+            "height": 1024,
+            "size_bytes": 204800
+          },
+          "edit: make the sky sunset orange"
+        ]
+      },
+      "metadata": {
+        "system_hints": ["picture_v2"],
+        "serialization_metadata": { "custom_symbol_offsets": [] },
+        "attachments": [
+          {
+            "id": "file-fixture-001",
+            "mimeType": "image/png",
+            "name": "input.png",
+            "size": 204800,
+            "width": 1024,
+            "height": 1024
+          }
+        ]
+      }
+    }
+  ]
+}

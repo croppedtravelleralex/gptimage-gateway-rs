@@ -1,0 +1,36 @@
+# .desense-allow — exemptions for scripts/check_runlog_desense.py
+#
+# Format (one entry per line, `#` starts a comment):
+#   <path-glob>                     exempt every finding in matching files
+#   <path-glob> :: <fragment>       exempt only findings whose matched text
+#                                   contains <fragment> (case-insensitive)
+#
+# Paths are repo-relative and use forward slashes. Prefer the `::` form —
+# a bare path glob disables the gate for that whole file forever.
+#
+# Every entry needs a justification comment. If you cannot write one, redact
+# the value instead of exempting it.
+
+# --- The audit that documents these exact regex gaps ------------------------
+# 22-audit lists the credential shapes the old gate missed. Quoting a shape is
+# not leaking one; these are the literal examples from the RFC/vendor formats.
+docs/22-audit-2026-07-26.md :: eyJhbGciOiJIUzI1NiJ9
+docs/22-audit-2026-07-26.md :: user:pass@host
+
+# --- The gate's own pattern documentation -----------------------------------
+# Docstrings and comments in the checker cite the shapes it detects.
+scripts/check_runlog_desense.py :: eyJhbGciOiJIUzI1NiJ9
+scripts/check_runlog_desense.py :: user:pass@host
+
+# --- Local-only test auth key ------------------------------------------------
+# `mvp-test` is the hardcoded auth value for the local :8013 bring-up harness,
+# not a credential for any upstream service. Confirmed in docs/22-audit §7.
+# If this ever becomes a real key, rotate it and delete these three lines.
+docs/22-audit-2026-07-26.md :: Bearer mvp-test
+scripts/mvp_rust_conc_matrix.py :: Bearer mvp-test
+scripts/_tmp_ab_image_once.py :: Bearer mvp-test
+
+# --- NOT exempted (deliberately) --------------------------------------------
+# The real proton.me / outlook.com account addresses in scripts/_tmp_*.py,
+# CHANGELOG.md and docs/25-*.md are genuine findings. Redact or delete them;
+# do not add them here.

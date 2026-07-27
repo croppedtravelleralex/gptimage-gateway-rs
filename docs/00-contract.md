@@ -1,6 +1,6 @@
 # 00 — PROTOCOL_CONTRACT
 
-最后更新：2026-07-20  
+最后更新：2026-07-23  
 版本：`PROTOCOL_CONTRACT_VERSION=1`
 
 Breaking 变更必须：本文件 bump + `gptimage` / 本仓 CHANGELOG 双边记录。
@@ -14,7 +14,27 @@ Breaking 变更必须：本文件 bump + `gptimage` / 本仓 CHANGELOG 双边记
 | `self` | 协议错、无 Bearer、假 ready、空 data、超时自伤、槽泄漏 | **必须 = 0** |
 | `gate` | pause / admission / duplicate-prompt 窗 | 记门禁，非 self |
 
-映射现网：`llm_ops.outcome_code` / 字符串前缀（`cf_edge_block:`、`token invalidated` 等）→ 上表；实现时保持可对账，禁止另起无法映射的 taxonomy。
+映射现网：`llm_ops.outcome_code` / 字符串前缀 → 上表。Rust 实现：`crates/protocol/src/error_class.rs` 的 `classify_fault()`。
+
+## 1b. 鉴权（gateway face）
+
+| 路径 | 角色 |
+|------|------|
+| `/api/auth/login` | 公开 |
+| `/api/auth/register` | admin（或 `AUTH_ALLOW_PUBLIC_REGISTER=1`） |
+| `/api/auth/me`、`/api/auth/logout` | 已登录 |
+| `/api/backend/capabilities` | 公开 |
+| `/v1/chat/*`、`/v1/models` | member + admin |
+| `/v1/accounts/candidates`、`/v1/quota*`、`/api/admin/*` | admin only |
+| `/v1/images/*` | member + admin；**默认 `IMAGE_ENABLED=0` → 501 deferred** |
+
+详见 `docs/21-auth-and-ui.md`。
+
+## 1c. Phase B 图像契约（运行时后置）
+
+- **契约层（✅）**：`fixtures/protocol/` 全量；`protocol::image_contract`（prepare/start/edits/estuary 头校验）
+- **运行时（⏸️）**：生图/edits/estuary 下载待后端管线接入；开启 `IMAGE_ENABLED=1` 后验收
+- estuary：**必须** API session + `Authorization: Bearer`；resource PUT **禁止** Bearer
 
 ## 2. URL → Session（硬表）
 
@@ -58,8 +78,9 @@ L1/L2：固定 `access_token` + sticky proxy 注入；**不调用** `get_availab
 
 ## 8. Fixtures
 
-目录：`fixtures/protocol/`（见该目录 README）。  
-至少：chat_body、image_prepare/start(+refs)、sentinel 头、SSE 片段（含 skipped_mainline）、estuary 请求头、upload API vs resource PUT。
+目录：`fixtures/protocol/`（**已齐**，见该目录 README）。  
+Rust 差分：`cargo test -p protocol --test fixtures`（8 项）。  
+禁止夹具含真实 token。
 
 ## 9. 仓边界
 

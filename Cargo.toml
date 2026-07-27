@@ -4,6 +4,7 @@ members = [
     "crates/gateway",
     "crates/protocol",
     "crates/helper_client",
+    "crates/auth",
 ]
 
 [workspace.package]
@@ -25,4 +26,10 @@ uuid = { version = "1", features = ["v4"] }
 base64 = "0.22"
 bytes = "1"
 futures-util = "0.3"
-tower-http = { version = "0.6", features = ["trace", "cors"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
+jsonwebtoken = "9"
+argon2 = "0.5"
+rusqlite = { version = "0.32", features = ["bundled"] }
+time = { version = "0.3", features = ["formatting", "parsing"] }
+axum-extra = { version = "0.10", features = ["cookie"] }
+cookie = "0.18"

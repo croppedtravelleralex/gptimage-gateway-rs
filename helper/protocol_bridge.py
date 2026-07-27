@@ -7,18 +7,29 @@ Env:
   GPTIMAGE_ROOT   path to gptimage checkout (default: sibling ../gptimage)
   HELPER_LISTEN   default 127.0.0.1:19001
   CHATGPT2API_AUTH_KEY or gptimage config.json auth-key (required by services.config)
+  HELPER_INTERNAL_TOKEN  shared secret for every /v1/internal/* route. Unset =>
+      those routes answer 503 and serve nothing (fail closed, not fail open).
+  HELPER_ALLOW_CALLER_PROXY  opt-in (default off) to let HTTP callers pick the
+      egress proxy; leaving it off keeps the helper from acting as an open proxy.
+
+Callers of /v1/internal/* (crates/helper_client) must send the shared secret in
+the ``X-Helper-Token`` request header, and must no longer expect ``access_token``
+or a full ``proxy`` URL back from /v1/internal/accounts/candidates.
 """
 from __future__ import annotations
 
+import hmac
+import logging
 import os
 import sys
 import threading
 import time
-import traceback
+import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 # --- path bootstrap ---------------------------------------------------------
@@ -51,6 +62,64 @@ from services.protocol.conversation import (  # noqa: E402
 from services.proxy_service import proxy_settings  # noqa: E402
 
 app = FastAPI(title="gptimage-gateway-rs-helper", version="0.1.0")
+
+log = logging.getLogger("protocol_bridge")
+
+
+def require_internal_token(x_helper_token: str | None = Header(default=None)) -> None:
+    """Gate for /v1/internal/*: these routes hand out account-scoped execution.
+
+    HELPER_INTERNAL_TOKEN unset is treated as misconfiguration, not as "auth
+    disabled" — an unconfigured deploy must serve nothing rather than everything.
+    """
+    expected = os.environ.get("HELPER_INTERNAL_TOKEN") or ""
+    if not expected.strip():
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "message": (
+                        "helper internal API disabled: HELPER_INTERNAL_TOKEN is not set. "
+                        "Set it on the helper process and send it as X-Helper-Token."
+                    ),
+                    "type": "helper_error",
+                    "code": "internal_token_unconfigured",
+                    "fault": "self",
+                }
+            },
+        )
+    # compare_digest keeps the reject path constant-time so a wrong token cannot
+    # be recovered byte-by-byte from response latency.
+    if not hmac.compare_digest(str(x_helper_token or ""), expected):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": {
+                    "message": "missing or invalid X-Helper-Token",
+                    "type": "helper_error",
+                    "code": "internal_token_invalid",
+                    "fault": "client",
+                }
+            },
+        )
+
+
+def _error_ref(exc: BaseException, event: str) -> str:
+    """Log the traceback server-side and return only a correlation id.
+
+    Tracebacks carry absolute paths and upstream internals, so they stay in the
+    process log; the HTTP body gets nothing but this id.
+    """
+    ref = uuid.uuid4().hex[:12]
+    log.exception("%s error_ref=%s: %s: %s", event, ref, type(exc).__name__, exc)
+    return ref
+
+
+# gptimage's `config` is a process-wide singleton whose mutations are persisted by
+# ConfigStore._save(). Any per-request override must therefore be serialized and
+# rolled back, or concurrent image requests overwrite each other and the last
+# writer can leak into config.json.
+_CONFIG_OVERRIDE_LOCK = threading.Lock()
 
 # Per-email lock for direct-token image path (Rust face). Avoids double-hit on
 # the same account without touching prod get_available_access_token slots.
@@ -104,13 +173,53 @@ def _min_image_quota() -> int:
 
 
 def _classify_fault(exc: BaseException) -> str:
+    """Map an exception onto the contract taxonomy (client / self / upstream).
+
+    `client` must be reachable: request-shaped failures (bad params, unparseable
+    or incomplete caller JSON) are not helper defects and must not be charged to
+    the self-fault SLO. Order matters — the client probe runs before the generic
+    TypeError/KeyError arm, which would otherwise swallow validation errors.
+    """
     name = type(exc).__name__.lower()
     msg = str(exc).lower()
-    if any(x in name for x in ("attribute", "type", "key", "assertion", "jsondecode")):
+    if any(
+        x in name
+        for x in ("validation", "valueerror", "unicodedecode", "jsondecode", "badrequest")
+    ):
+        return "client"
+    if any(
+        x in msg
+        for x in (
+            "requires account email",
+            "invalid_request",
+            "must include",
+            "unsupported",
+            "is required",
+            "missing required",
+            "field required",
+        )
+    ):
+        return "client"
+    if any(x in name for x in ("attribute", "type", "key", "assertion")):
         return "self"
     if "helper" in msg or "pin_" in msg:
         return "self"
     return "upstream"
+
+
+def _allow_caller_proxy() -> bool:
+    """Whether an HTTP caller may choose the egress proxy for its own request.
+
+    Off by default: honouring caller-supplied proxies turns the helper into an
+    open forward proxy for anyone who can reach it. Server-side per-account
+    binding stays authoritative unless an operator explicitly opts in.
+    """
+    return str(os.environ.get("HELPER_ALLOW_CALLER_PROXY", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def make_backend(acc: AccountIn) -> OpenAIBackendAPI:
@@ -148,9 +257,12 @@ def make_backend(acc: AccountIn) -> OpenAIBackendAPI:
             pass
 
     api = OpenAIBackendAPI(access_token=acc.access_token)
+    # Caller-supplied proxy is ignored unless explicitly opted in; the pool row
+    # for this email (resolved above) is the intended egress binding.
+    proxy = (acc.proxy or "").strip() if _allow_caller_proxy() else ""
     account: dict[str, Any] = {
         "email": acc.email or "",
-        "proxy": (acc.proxy or "").strip(),
+        "proxy": proxy,
         "access_token": acc.access_token,
         "oai-device-id": acc.device_id or "",
         "user-agent": acc.user_agent or "",
@@ -189,7 +301,7 @@ def make_backend(acc: AccountIn) -> OpenAIBackendAPI:
             "event": "mvp_backend_identity",
             "source": "pin",
             "email": (acc.email or "").strip().lower(),
-            "proxy_host": (acc.proxy or "").split("@")[-1][:80],
+            "proxy_host": proxy.split("@")[-1][:80],
         })
     except Exception:
         pass
@@ -254,7 +366,7 @@ def execute_quota(body: QuotaIn) -> dict[str, Any]:
             "fault": _classify_fault(e),
             "error": f"{type(e).__name__}: {e}"[:800],
             "elapsed_ms": int((time.time() - t0) * 1000),
-            "raw": {"trace": traceback.format_exc()[-1500:]},
+            "error_ref": _error_ref(e, "quota_refresh_failed"),
         }
     finally:
         try:
@@ -263,14 +375,29 @@ def execute_quota(body: QuotaIn) -> dict[str, Any]:
             pass
 
 
+# Upstream text slugs gptimage will forward as-is (services/protocol/openai_v1_models.py).
+# Anything else — including the OpenAI-shaped aliases callers send, e.g.
+# "gpt-4o-mini" — has no upstream equivalent and must degrade to "auto".
+_UPSTREAM_TEXT_MODELS = frozenset(
+    {"auto", "gpt-5", "gpt-5-1", "gpt-5-2", "gpt-5-3", "gpt-5-3-mini", "gpt-5-mini"}
+)
+
+
+def _resolve_text_model(requested: str) -> str:
+    """Model actually sent upstream. Responses must echo this, not the request."""
+    name = str(requested or "").strip().lower()
+    return name if name in _UPSTREAM_TEXT_MODELS else "auto"
+
+
 def execute_text(body: TextIn) -> dict[str, Any]:
     t0 = time.time()
     api = make_backend(body.account)
+    model = _resolve_text_model(body.model)
     try:
         cid = ""
         text = ""
         messages = [{"role": "user", "content": body.prompt}]
-        for ev in conversation_events(api, messages=messages, model="auto"):
+        for ev in conversation_events(api, messages=messages, model=model):
             cid = ev.get("conversation_id") or cid
             if ev.get("type") == "conversation.delta":
                 text += ev.get("delta") or ""
@@ -281,6 +408,7 @@ def execute_text(body: TextIn) -> dict[str, Any]:
             "ok": ok,
             "content": text,
             "conversation_id": cid,
+            "model": model,
             "fault": None if ok else "upstream",
             "error": None if ok else "empty assistant content",
             "elapsed_ms": int((time.time() - t0) * 1000),
@@ -290,10 +418,11 @@ def execute_text(body: TextIn) -> dict[str, Any]:
             "ok": False,
             "content": None,
             "conversation_id": None,
+            "model": model,
             "fault": _classify_fault(e),
             "error": f"{type(e).__name__}: {e}"[:800],
             "elapsed_ms": int((time.time() - t0) * 1000),
-            "raw": {"trace": traceback.format_exc()[-1500:]},
+            "error_ref": _error_ref(e, "text_failed"),
         }
     finally:
         try:
@@ -302,32 +431,55 @@ def execute_text(body: TextIn) -> dict[str, Any]:
             pass
 
 
+def _mvp_post_ready_secs() -> float | None:
+    """Resolve the MVP post_ready value from env. Constant for the process."""
+    raw = os.environ.get("MVP_IMAGE_SSE_POST_READY_SECS", "50").strip()
+    if raw.lower() in {"", "none", "null", "off", "0"}:
+        return None
+    try:
+        return max(30.0, float(raw))
+    except ValueError:
+        return 50.0
+
+
+_post_ready_applied = False
+
+
 def _apply_mvp_sse_post_ready() -> float | None:
     """MVP soft post_ready after conversation_id.
 
     Prefer complete_predicate (file_id) early-exit; soft post_ready is a safety
     valve to leave SSE for poll without hard-waiting EOF (~90s) or hanging past
     the client wall. Default 50s aligns with ~40-60s healthy e2e + poll residual.
+
+    Two constraints drive the shape of this override:
+
+    1. ``config.data`` is what ``ConfigStore._save()`` serializes into the live
+       config.json, and any ``config.update()`` from an unrelated code path
+       copies ``data`` wholesale before saving. Injecting there means an MVP-only
+       tuning value can be written into production config permanently. So the
+       override is installed on the class descriptor instead — ``data`` is never
+       touched and there is nothing for ``_save()`` to pick up.
+    2. ``openai_backend_api`` reads this only through the module-level ``config``
+       singleton; there is no per-call parameter to thread it through. Since the
+       value is derived from an env var it is identical for every request, so it
+       is applied exactly once under a lock rather than rewritten per request —
+       which is what previously let 40 pooled threads clobber each other.
     """
-    raw = os.environ.get("MVP_IMAGE_SSE_POST_READY_SECS", "50").strip()
-    if raw.lower() in {"", "none", "null", "off", "0"}:
+    global _post_ready_applied
+    secs = _mvp_post_ready_secs()
+    if _post_ready_applied:
+        return secs
+    with _CONFIG_OVERRIDE_LOCK:
+        if _post_ready_applied:
+            return secs
         try:
             from services.config import config as cfg
 
-            cfg.data["image_sse_post_ready_timeout_secs"] = None
+            type(cfg).image_sse_post_ready_timeout_secs = property(lambda _self: secs)
         except Exception:
-            pass
-        return None
-    try:
-        secs = max(30.0, float(raw))
-    except ValueError:
-        secs = 50.0
-    try:
-        from services.config import config as cfg
-
-        cfg.data["image_sse_post_ready_timeout_secs"] = secs
-    except Exception:
-        pass
+            log.warning("mvp post_ready override not installed; using gptimage default")
+        _post_ready_applied = True
     return secs
 
 
@@ -362,10 +514,9 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
             }
 
     post_ready = _apply_mvp_sse_post_ready()
-    # Soft post_ready(~50) + poll residual; keep under client ~80s wall.
-    poll_timeout = min(30.0, float(os.environ.get("MVP_IMAGE_POLL_TIMEOUT_SECS", "30")))
+    poll_timeout = float(os.environ.get("MVP_IMAGE_POLL_TIMEOUT_SECS", "90"))
     cancel_event = threading.Event()
-    wall = float(os.environ.get("MVP_IMAGE_WALL_SECS", "70"))
+    wall = float(os.environ.get("MVP_IMAGE_WALL_SECS", "120"))
     prefer = (body.account.email or "").strip()
     token_in = (body.account.access_token or "").strip()
     force_sticky = str(os.environ.get("MVP_FORCE_POOL_STICKY", "")).strip().lower() in {
@@ -500,7 +651,7 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
                 else f"{name}: {msg}"[:800]
             ),
             "elapsed_ms": int((time.time() - t0) * 1000),
-            "raw": {"trace": traceback.format_exc()[-1500:]},
+            "error_ref": _error_ref(e, "image_failed"),
             "quota": q,
             "timing": {
                 "post_ready_secs": post_ready,
@@ -530,24 +681,105 @@ def execute_image(body: ImageIn, *, skip_quota_gate: bool = False) -> dict[str, 
             except Exception:
                 pass
 
-@app.post("/v1/internal/text")
+def execute_text_stream(body: TextIn):
+    """Yield OpenAI-compatible SSE chunks from conversation_events.
+
+    ``conversation.done`` carries the accumulated full text, not a tail delta —
+    the same field the non-streaming path assigns (replace semantics). Emitting
+    it as a delta would hand the client every chunk twice, so the done event only
+    terminates the stream here. Both paths therefore end with identical text.
+    """
+    import json as _json
+
+    api = make_backend(body.account)
+    model = _resolve_text_model(body.model)
+    try:
+        cid = ""
+        chunk_id = f"chatcmpl-{int(time.time())}"
+        messages = [{"role": "user", "content": body.prompt}]
+        for ev in conversation_events(api, messages=messages, model=model):
+            cid = ev.get("conversation_id") or cid
+            if ev.get("type") != "conversation.delta":
+                continue
+            delta = ev.get("delta") or ""
+            if not delta:
+                continue
+            payload = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"content": delta},
+                    "finish_reason": None,
+                }],
+            }
+            yield f"data: {_json.dumps(payload, ensure_ascii=False)}\n\n"
+        done = {
+            "id": chunk_id,
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        }
+        yield f"data: {_json.dumps(done)}\n\n"
+        yield "data: [DONE]\n\n"
+    except Exception as e:
+        err = {
+            "error": {
+                "message": f"{type(e).__name__}: {e}"[:800],
+                "type": "bridge_error",
+                "code": "text_stream_failed",
+                "fault": _classify_fault(e),
+                "error_ref": _error_ref(e, "text_stream_failed"),
+            }
+        }
+        yield f"data: {_json.dumps(err)}\n\n"
+        yield "data: [DONE]\n\n"
+    finally:
+        try:
+            api.close()
+        except Exception:
+            pass
+
+
+@app.post("/v1/internal/text", dependencies=[Depends(require_internal_token)])
 def run_text(body: TextIn) -> dict[str, Any]:
     return execute_text(body)
 
 
-@app.post("/v1/internal/image")
+@app.post("/v1/internal/text/stream", dependencies=[Depends(require_internal_token)])
+def run_text_stream(body: TextIn):
+    return StreamingResponse(
+        execute_text_stream(body),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+    )
+
+
+@app.post("/v1/internal/image", dependencies=[Depends(require_internal_token)])
 def run_image(body: ImageIn) -> dict[str, Any]:
     return execute_image(body)
 
 
-@app.post("/v1/internal/quota/refresh")
+@app.post("/v1/internal/quota/refresh", dependencies=[Depends(require_internal_token)])
 def run_quota(body: QuotaIn) -> dict[str, Any]:
     return execute_quota(body)
 
 
-@app.get("/v1/internal/accounts/candidates")
+@app.get(
+    "/v1/internal/accounts/candidates",
+    dependencies=[Depends(require_internal_token)],
+)
 def list_candidates(limit: int = 20) -> dict[str, Any]:
-    """Unique-proxy pool accounts for Rust multi-account concurrent tests."""
+    """Unique-proxy pool accounts for Rust multi-account concurrent tests.
+
+    Deliberately credential-free: no ``access_token`` and no proxy URL (which
+    embeds ``user:pass@``). Callers address an account by ``email`` and the
+    helper resolves the pool row itself, so nothing here needs the secrets.
+    Presence is reported via ``has_token`` for selection purposes only.
+    """
     limit = max(1, min(100, int(limit or 20)))
     try:
         from services.account_service import account_service
@@ -559,7 +791,8 @@ def list_candidates(limit: int = 20) -> dict[str, Any]:
             "count": 0,
             "accounts": [],
             "fault": "self",
-            "error": f"{type(exc).__name__}: {exc}"[:400],
+            "error": "list_accounts failed",
+            "error_ref": _error_ref(exc, "candidates_list_failed"),
         }
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -582,15 +815,13 @@ def list_candidates(limit: int = 20) -> dict[str, Any]:
                 "proxy_host": host,
                 "status": status,
                 "quota": row.get("quota"),
-                # token only on loopback helper — Rust needs it for AccountIn shape
-                "access_token": token,
+                "has_token": True,
                 "device_id": str(
                     row.get("oai-device-id")
                     or ((row.get("fp") or {}) if isinstance(row.get("fp"), dict) else {}).get("oai-device-id")
                     or ""
                 )
                 or None,
-                "proxy": proxy,
                 "user_agent": str(
                     row.get("user-agent")
                     or ((row.get("fp") or {}) if isinstance(row.get("fp"), dict) else {}).get("user-agent")
@@ -607,6 +838,13 @@ def list_candidates(limit: int = 20) -> dict[str, Any]:
 def main() -> None:
     import uvicorn
 
+    # Fail fast rather than starting a listener whose /v1/internal/* routes would
+    # all answer 503; a silent 503-only service is harder to diagnose than a
+    # refusal at boot.
+    if not (os.environ.get("HELPER_INTERNAL_TOKEN") or "").strip():
+        raise RuntimeError(
+            "HELPER_INTERNAL_TOKEN must be set; refusing to start with unauthenticated routes"
+        )
     listen = os.environ.get("HELPER_LISTEN", "127.0.0.1:19001")
     host, _, port_s = listen.partition(":")
     uvicorn.run(app, host=host or "127.0.0.1", port=int(port_s or "19001"), log_level="info")

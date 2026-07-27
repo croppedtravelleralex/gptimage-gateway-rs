@@ -4,10 +4,43 @@
 data/runlogs/*
 !data/runlogs/README.md
 data/runlogs/*.secret*
+data/auth.db
+data/auth.db-*
+
+# Local secrets / env. web/ is Next.js, whose convention is .env.local.
 .env
-*.pem
+.env.*
+!.env.example
+config.json
 secrets/
+
+# Databases (data/auth.db above is a specific case of these)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Keys and certificates
+*.pem
+*.key
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+
 *.json.bak
+web/node_modules/
+web/.next/
+web/out/
+
+# Compiled binaries belong in CI artifacts, not in git.
+bin/
 
 _*.b64
 *.b64
+
+# Phase B' spike: BoringSSL build artifacts + vendored libclang (84MB)
+spike/*/target/
+spike/.libclang/
+spike/*/out-*.json

@@ -1,0 +1,15 @@
+[package]
+name = "tls-fingerprint-spike"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone spike: intentionally NOT a member of the root workspace.
+# `workspace = {}` detaches it so `cargo` does not walk up to ../../Cargo.toml.
+[workspace]
+
+[dependencies]
+wreq = "6.0.0-rc"
+wreq-util = "3.0.0-rc"
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"

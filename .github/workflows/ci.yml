@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# Deployment policy: builds happen here (GitHub Actions), never on the panda
+# production host. This workflow must never ssh into panda or push to it.
+# It only validates the tree; publishing images/artifacts is a separate concern.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, build, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test
+        run: cargo test --workspace
+
+  desense:
+    name: Desensitization gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Scans the whole repo for bearer tokens, JWTs, sk- API keys, inline proxy
+      # credentials and real account emails. Exits non-zero on any finding that
+      # is not exempted in .desense-allow.
+      - name: Check for leaked credentials
+        run: python3 scripts/check_runlog_desense.py
+
+  web:
+    name: Web (Next.js build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # web/ is not currently tracked in git. Every later step is gated on the
+      # lockfile actually being present, so this job passes trivially until the
+      # directory is committed, then starts enforcing the build for real.
+      - name: Detect web workspace
+        id: detect
+        run: |
+          if [ -f web/package-lock.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::web/package-lock.json not found; web build skipped. Commit web/ to enable this gate."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.detect.outputs.present == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        if: steps.detect.outputs.present == 'true'
+        working-directory: web
+        run: npm ci
+
+      - name: Build
+        if: steps.detect.outputs.present == 'true'
+        working-directory: web
+        run: npm run build

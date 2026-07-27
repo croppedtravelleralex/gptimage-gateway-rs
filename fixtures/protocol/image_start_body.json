@@ -1,0 +1,24 @@
+{
+  "action": "next",
+  "parent_message_id": "client-created-root",
+  "model": "gpt-image-2",
+  "client_prepare_state": "none",
+  "timezone_offset_min": -480,
+  "timezone": "Asia/Shanghai",
+  "conversation_mode": { "kind": "primary_assistant" },
+  "enable_message_followups": true,
+  "system_hints": ["picture_v2"],
+  "supports_buffering": true,
+  "supported_encodings": ["v1"],
+  "messages": [
+    {
+      "id": "fixture-user-message-id",
+      "author": { "role": "user" },
+      "content": { "content_type": "text", "parts": ["a red cube on white background"] },
+      "metadata": {
+        "system_hints": ["picture_v2"],
+        "serialization_metadata": { "custom_symbol_offsets": [] }
+      }
+    }
+  ]
+}

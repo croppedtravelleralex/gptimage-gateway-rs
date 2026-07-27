@@ -1,5 +1,15 @@
 //! OpenAI-compatible request/response shapes for MVP text + image.
 
+mod error_class;
+mod image_contract;
+
+pub use error_class::{classify_fault, ErrorClass};
+pub use image_contract::{
+    build_estuary_download_headers, build_image_prepare_body, build_image_start_body,
+    build_image_start_body_with_refs, validate_estuary_headers, validate_resource_put_headers,
+    ImageEditRequest, ImageRef,
+};
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -84,7 +94,11 @@ pub struct ErrorDetail {
     pub fault: Option<String>,
 }
 
-pub fn openai_error(message: impl Into<String>, code: impl Into<String>, fault: Option<&str>) -> Value {
+pub fn openai_error(
+    message: impl Into<String>,
+    code: impl Into<String>,
+    fault: Option<&str>,
+) -> Value {
     json!({
         "error": {
             "message": message.into(),

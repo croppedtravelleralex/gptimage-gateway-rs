@@ -1,43 +1,84 @@
 //! gptimage-gateway-rs MVP gateway (Rust face).
-//!
-//! OpenAI-compatible surface; protocol execution via Python curl_cffi bridge
-//! (`PROTO_BRIDGE`). Image concurrency is gated here with a process semaphore
-//! so conc=1 and conc=3 both target ~40–60s per image (parallel wall ≈ single).
 
+mod auth_routes;
+mod backend_routes;
 mod config;
+mod state;
 
 use anyhow::Context;
+use auth::{AuthConfig, AuthService};
+use auth_routes::{
+    list_users, login, logout, me, register, require_admin, require_auth, require_member,
+    set_user_disabled,
+};
 use axum::{
+    body::Body,
     extract::State,
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    http::{header, HeaderMap, Method, StatusCode},
+    middleware,
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use backend_routes::{admin_status, capabilities};
+use futures_util::StreamExt;
 use helper_client::{
     HelperClient, ImageRunRequest, PinAccount, QuotaRefreshRequest, TextRunRequest,
 };
 use protocol::{
-    chat_completion_response, image_generation_response, openai_error, ChatCompletionRequest,
-    ImageGenerationRequest,
+    chat_completion_response, classify_fault, image_generation_response, openai_error,
+    ChatCompletionRequest, ImageEditRequest, ImageGenerationRequest,
 };
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use state::AppState;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::{Mutex, Semaphore};
-use tower_http::trace::TraceLayer;
+use tokio::sync::Mutex;
+use tower_http::{
+    cors::{AllowOrigin, Any, CorsLayer},
+    services::ServeDir,
+    trace::TraceLayer,
+};
 use tracing::{error, info, warn};
 
-#[derive(Clone)]
-struct AppState {
-    helper: HelperClient,
-    pin: PinAccount,
-    accounts: Arc<Mutex<HashMap<String, PinAccount>>>,
-    listen: String,
-    min_image_quota: i64,
-    image_global_concurrency: usize,
-    image_sem: Arc<Semaphore>,
+/// Build the CORS layer from a comma-separated origin allowlist.
+///
+/// tower-http rejects `Access-Control-Allow-Credentials: true` alongside a
+/// wildcard in *any* of origin, methods, or headers — each combination is a
+/// separate assert. The credentialed branch therefore has to enumerate all
+/// three explicitly.
+fn cors_layer_from(spec: &str) -> CorsLayer {
+    let origins: Vec<_> = spec
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse::<header::HeaderValue>().ok())
+        .collect();
+
+    if origins.is_empty() {
+        return CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any);
+    }
+
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+        .allow_credentials(true)
+}
+
+/// Read `GATEWAY_CORS_ORIGINS` and build the layer.
+fn cors_layer() -> CorsLayer {
+    let spec = std::env::var("GATEWAY_CORS_ORIGINS").unwrap_or_default();
+    if spec.trim().is_empty() {
+        warn!("GATEWAY_CORS_ORIGINS unset; CORS runs without credentials");
+    } else {
+        info!("CORS allowlist active with credentials");
+    }
+    cors_layer_from(&spec)
 }
 
 #[tokio::main]
@@ -50,23 +91,39 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cfg = config::load().context("load config")?;
+    let auth_cfg = AuthConfig::from_env().context("auth config")?;
+    let auth_svc = Arc::new(AuthService::open(auth_cfg).context("open auth db")?);
+
     let helper = HelperClient::new(&cfg.helper_url)?;
+    if !helper.has_token() {
+        warn!(
+            "HELPER_INTERNAL_TOKEN unset — helper fails closed on /v1/internal/*, \
+             so chat and image will return 503"
+        );
+    }
     match helper.health().await {
         Ok(h) => info!(?h, "helper healthy"),
         Err(e) => tracing::warn!(error=%e, "helper health check failed (will retry on request)"),
     }
 
-    // Seed accounts from helper candidates (unique proxy) when available.
     let mut accounts = cfg.accounts;
     match helper.list_candidates(12).await {
         Ok(cands) => {
             for a in cands {
-                accounts.insert(a.email.to_lowercase(), a);
+                accounts.insert(a.email.to_lowercase(), a.to_pin());
             }
-            info!(n = accounts.len(), "accounts ready (pin + helper candidates)");
+            info!(
+                n = accounts.len(),
+                "accounts ready (pin + helper candidates)"
+            );
         }
         Err(e) => warn!(error=%e, "helper candidates unavailable; using pin/ACCOUNTS_FILE only"),
     }
+
+    let static_dir = std::env::var("GATEWAY_STATIC_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir());
 
     let state = Arc::new(AppState {
         helper,
@@ -76,18 +133,56 @@ async fn main() -> anyhow::Result<()> {
         min_image_quota: cfg.min_image_quota,
         image_global_concurrency: cfg.image_global_concurrency,
         image_sem: cfg.image_sem,
+        image_enabled: cfg.image_enabled,
+        auth: auth_svc,
+        static_dir: static_dir.clone(),
     });
 
-    let app = Router::new()
+    let auth_public = Router::new()
+        .route("/login", post(login))
+        .route("/register", post(register));
+
+    let auth_protected = Router::new()
+        .route("/logout", post(logout))
+        .route("/me", get(me))
+        .layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
+    let admin_api = Router::new()
+        .route("/users", get(list_users))
+        .route("/users/{user_id}/disabled", post(set_user_disabled))
+        .route("/status", get(admin_status))
+        .layer(middleware::from_fn(require_admin))
+        .layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
+    let member_api = Router::new()
+        .route("/models", get(models))
+        .route("/chat/completions", post(chat_completions))
+        .route("/images/generations", post(image_generations))
+        .route("/images/edits", post(image_edits))
+        .layer(middleware::from_fn(require_member))
+        .layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
+    let admin_v1 = Router::new()
+        .route("/accounts/candidates", get(account_candidates))
+        .route("/quota", get(quota_refresh))
+        .route("/quota/refresh", post(quota_refresh))
+        .layer(middleware::from_fn(require_admin))
+        .layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
+    let mut app = Router::new()
         .route("/health", get(health))
-        .route("/v1/models", get(models))
-        .route("/v1/accounts/candidates", get(account_candidates))
-        .route("/v1/quota", get(quota_refresh))
-        .route("/v1/quota/refresh", post(quota_refresh))
-        .route("/v1/chat/completions", post(chat_completions))
-        .route("/v1/images/generations", post(image_generations))
+        .route("/api/backend/capabilities", get(capabilities))
+        .nest("/api/auth", auth_public.merge(auth_protected))
+        .nest("/api/admin", admin_api)
+        .nest("/v1", member_api.merge(admin_v1))
+        .layer(cors_layer())
         .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .with_state(state.clone());
+
+    if let Some(dir) = static_dir {
+        info!(path=%dir.display(), "serving static UI");
+        app = app.fallback_service(ServeDir::new(dir).append_index_html_on_directories(true));
+    }
 
     let listener = tokio::net::TcpListener::bind(&cfg.listen)
         .await
@@ -97,6 +192,8 @@ async fn main() -> anyhow::Result<()> {
         helper=%cfg.helper_url,
         email=%cfg.account_email_log,
         image_global_concurrency=%cfg.image_global_concurrency,
+        image_enabled=%cfg.image_enabled,
+        auth_disabled=%state.auth.config().disabled,
         "gateway listening (rust)"
     );
     axum::serve(listener, app).await?;
@@ -106,6 +203,7 @@ async fn main() -> anyhow::Result<()> {
 async fn health(State(st): State<Arc<AppState>>) -> impl IntoResponse {
     let helper_ok = st.helper.health().await.is_ok();
     let n_accounts = st.accounts.lock().await.len();
+    // Unauthenticated endpoint: report liveness and shape, never pool identities.
     Json(json!({
         "ok": true,
         "service": "gptimage-gateway-rs",
@@ -113,12 +211,10 @@ async fn health(State(st): State<Arc<AppState>>) -> impl IntoResponse {
         "runtime": "rust",
         "proto_bridge": true,
         "helper_ok": helper_ok,
-        "listen": st.listen,
-        "pin_email": st.pin.email,
-        "multi_account": true,
         "accounts": n_accounts,
-        "image_global_concurrency": st.image_global_concurrency,
-        "min_image_quota": st.min_image_quota,
+        "image_enabled": st.image_enabled,
+        "auth_disabled": st.auth.config().disabled,
+        "static_ui": st.static_dir.is_some(),
     }))
 }
 
@@ -137,15 +233,16 @@ async fn account_candidates(State(st): State<Arc<AppState>>) -> impl IntoRespons
         Ok(list) => {
             let mut guard = st.accounts.lock().await;
             for a in &list {
-                guard.insert(a.email.to_lowercase(), a.clone());
+                guard.insert(a.email.to_lowercase(), a.to_pin());
             }
             let accounts: Vec<Value> = list
                 .into_iter()
                 .map(|a| {
                     json!({
                         "email": a.email,
-                        "proxy_host": a.proxy.as_deref().and_then(|p| p.split('@').next_back()).unwrap_or(""),
-                        "has_token": !a.access_token.is_empty(),
+                        "proxy_host": a.proxy_host.unwrap_or_default(),
+                        "has_token": a.has_token,
+                        "status": a.status,
                     })
                 })
                 .collect();
@@ -160,40 +257,58 @@ async fn account_candidates(State(st): State<Arc<AppState>>) -> impl IntoRespons
     }
 }
 
-async fn resolve_account(st: &AppState, preferred: Option<String>) -> Result<PinAccount, axum::response::Response> {
-    let email = preferred
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| st.pin.email.clone());
+/// Resolve which pool account serves this request.
+///
+/// `X-Preferred-Account-Email` is honoured for admins only — a member picking an
+/// arbitrary pool address would burn someone else's quota through their proxy
+/// and token. Members always get the pin account.
+async fn resolve_account(
+    st: &AppState,
+    preferred: Option<String>,
+    is_admin: bool,
+) -> Result<PinAccount, Response> {
+    let email = match preferred.filter(|s| !s.is_empty()) {
+        Some(e) if is_admin => e,
+        Some(_) => {
+            return Err(err(
+                StatusCode::FORBIDDEN,
+                "X-Preferred-Account-Email requires admin",
+                "account_override_forbidden",
+                Some("client"),
+            ))
+        }
+        None => st.pin.email.clone(),
+    };
     let key = email.to_lowercase();
     if let Some(acc) = st.accounts.lock().await.get(&key).cloned() {
         return Ok(acc);
     }
-    // Refresh candidates once, then retry.
     if let Ok(list) = st.helper.list_candidates(30).await {
         let mut guard = st.accounts.lock().await;
         for a in list {
-            guard.insert(a.email.to_lowercase(), a);
+            guard.insert(a.email.to_lowercase(), a.to_pin());
         }
         if let Some(acc) = guard.get(&key).cloned() {
             return Ok(acc);
         }
     }
-    // Sticky email-only stub — helper pool_sticky resolves token by email.
-    Ok(PinAccount {
-        email,
-        access_token: String::new(),
-        device_id: None,
-        proxy: None,
-        user_agent: None,
-    })
+    // Previously this fabricated an account with an empty token and let the
+    // request continue, surfacing as an opaque upstream failure.
+    Err(err(
+        StatusCode::NOT_FOUND,
+        format!("account not in pool: {key}"),
+        "account_not_found",
+        Some("client"),
+    ))
 }
 
 async fn quota_refresh(
     State(st): State<Arc<AppState>>,
+    user: auth_routes::AuthUser,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let preferred = preferred_email(&headers);
-    let account = match resolve_account(&st, preferred).await {
+    let account = match resolve_account(&st, preferred, user.claims.role.is_admin()).await {
         Ok(a) => a,
         Err(r) => return r,
     };
@@ -243,17 +358,10 @@ async fn quota_refresh(
 
 async fn chat_completions(
     State(st): State<Arc<AppState>>,
+    user: auth_routes::AuthUser,
     headers: HeaderMap,
     Json(req): Json<ChatCompletionRequest>,
 ) -> impl IntoResponse {
-    if req.stream {
-        return err(
-            StatusCode::BAD_REQUEST,
-            "stream not supported in MVP",
-            "stream_unsupported",
-            Some("self"),
-        );
-    }
     let prompt = req
         .messages
         .iter()
@@ -266,34 +374,77 @@ async fn chat_completions(
             StatusCode::BAD_REQUEST,
             "messages must include a user text",
             "invalid_request",
-            Some("self"),
+            Some("client"),
         );
     }
 
-    let account = match resolve_account(&st, preferred_email(&headers)).await {
-        Ok(a) => a,
-        Err(r) => return r,
-    };
+    let account =
+        match resolve_account(&st, preferred_email(&headers), user.claims.role.is_admin()).await {
+            Ok(a) => a,
+            Err(r) => return r,
+        };
 
     let bridge_req = TextRunRequest {
         account,
         prompt,
         model: req.model.clone(),
     };
+
+    if req.stream {
+        return match st.helper.run_text_stream(&bridge_req).await {
+            Ok(upstream) => {
+                let status = upstream.status();
+                let mut resp = Response::builder().status(status);
+                if let Some(ct) = upstream.headers().get(header::CONTENT_TYPE) {
+                    resp = resp.header(header::CONTENT_TYPE, ct);
+                }
+                resp = resp
+                    .header(header::CACHE_CONTROL, "no-cache")
+                    .header(header::CONNECTION, "keep-alive");
+                let stream = upstream
+                    .bytes_stream()
+                    .map(|chunk| chunk.map_err(std::io::Error::other));
+                match resp.body(Body::from_stream(stream)) {
+                    Ok(r) => r,
+                    Err(e) => err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        e.to_string(),
+                        "stream_build_failed",
+                        Some("self"),
+                    ),
+                }
+            }
+            Err(e) => {
+                error!(error=%e, "helper text stream failed");
+                err(
+                    StatusCode::BAD_GATEWAY,
+                    e.to_string(),
+                    "helper_unreachable",
+                    Some("self"),
+                )
+            }
+        };
+    }
+
     match st.helper.run_text(&bridge_req).await {
         Ok(r) if r.ok => {
             let content = r.content.unwrap_or_default();
-            (StatusCode::OK, Json(chat_completion_response(&req.model, &content))).into_response()
+            (
+                StatusCode::OK,
+                Json(chat_completion_response(&req.model, &content)),
+            )
+                .into_response()
         }
         Ok(r) => {
-            let fault = r.fault.as_deref().unwrap_or("upstream");
+            let fault = r.fault.as_deref();
             let msg = r.error.unwrap_or_else(|| "text bridge failed".into());
-            let code = if fault == "self" {
-                StatusCode::INTERNAL_SERVER_ERROR
-            } else {
-                StatusCode::BAD_GATEWAY
+            let class = classify_fault(fault, Some(&msg));
+            let code = match class {
+                protocol::ErrorClass::Self_ => StatusCode::INTERNAL_SERVER_ERROR,
+                protocol::ErrorClass::Client => StatusCode::BAD_REQUEST,
+                _ => StatusCode::BAD_GATEWAY,
             };
-            err(code, msg, "text_failed", Some(fault))
+            err(code, msg, "text_failed", Some(class.as_str()))
         }
         Err(e) => {
             error!(error=%e, "helper text call failed");
@@ -309,25 +460,34 @@ async fn chat_completions(
 
 async fn image_generations(
     State(st): State<Arc<AppState>>,
+    user: auth_routes::AuthUser,
     headers: HeaderMap,
     Json(req): Json<ImageGenerationRequest>,
 ) -> impl IntoResponse {
+    if !st.image_enabled {
+        return err(
+            StatusCode::NOT_IMPLEMENTED,
+            "image generation deferred; set IMAGE_ENABLED=1 after backend pipeline integration",
+            "image_deferred",
+            Some("gate"),
+        );
+    }
+
     if req.n != 1 {
         return err(
             StatusCode::BAD_REQUEST,
             "MVP only supports n=1",
             "n_unsupported",
-            Some("self"),
+            Some("client"),
         );
     }
 
-    let account = match resolve_account(&st, preferred_email(&headers)).await {
-        Ok(a) => a,
-        Err(r) => return r,
-    };
+    let account =
+        match resolve_account(&st, preferred_email(&headers), user.claims.role.is_admin()).await {
+            Ok(a) => a,
+            Err(r) => return r,
+        };
 
-    // Process-wide image concurrency (default 3). Conc=1 and conc=3 share the same
-    // per-image latency target (~40–60s); wall clock scales with available permits.
     let permit = match st.image_sem.clone().acquire_owned().await {
         Ok(p) => p,
         Err(_) => {
@@ -340,7 +500,6 @@ async fn image_generations(
         }
     };
 
-    // Quota gate on the resolved account (helper also pool-gates).
     let qreq = QuotaRefreshRequest {
         account: account.clone(),
         min_remaining: st.min_image_quota,
@@ -356,7 +515,7 @@ async fn image_generations(
                     q.remaining, q.status, st.min_image_quota, q.restore_at
                 ),
                 "image_quota_insufficient",
-                Some("quota"),
+                Some("gate"),
             );
         }
         Ok(q) => {
@@ -415,15 +574,18 @@ async fn image_generations(
             (StatusCode::OK, Json(image_generation_response(&b64))).into_response()
         }
         Ok(r) => {
-            let fault = r.fault.as_deref().unwrap_or("upstream");
+            let fault = r.fault.as_deref();
             let msg = r.error.unwrap_or_else(|| "image bridge failed".into());
-            warn!(email=%account.email, elapsed_ms, fault=%fault, error=%msg, "image failed");
-            let (code, err_code) = match fault {
-                "self" => (StatusCode::INTERNAL_SERVER_ERROR, "image_failed"),
-                "quota" => (StatusCode::TOO_MANY_REQUESTS, "image_quota_insufficient"),
+            let class = classify_fault(fault, Some(&msg));
+            warn!(email=%account.email, elapsed_ms, fault=?fault, error=%msg, "image failed");
+            let (code, err_code) = match class {
+                protocol::ErrorClass::Self_ => (StatusCode::INTERNAL_SERVER_ERROR, "image_failed"),
+                protocol::ErrorClass::Gate => {
+                    (StatusCode::TOO_MANY_REQUESTS, "image_quota_insufficient")
+                }
                 _ => (StatusCode::BAD_GATEWAY, "image_failed"),
             };
-            err(code, msg, err_code, Some(fault))
+            err(code, msg, err_code, Some(class.as_str()))
         }
         Err(e) => {
             error!(email=%account.email, elapsed_ms, error=%e, "helper image call failed");
@@ -435,6 +597,18 @@ async fn image_generations(
             )
         }
     }
+}
+
+async fn image_edits(
+    State(_st): State<Arc<AppState>>,
+    Json(_req): Json<ImageEditRequest>,
+) -> impl IntoResponse {
+    err(
+        StatusCode::NOT_IMPLEMENTED,
+        "image edits deferred; Phase B contract/fixtures only until backend integration",
+        "image_edits_deferred",
+        Some("gate"),
+    )
 }
 
 fn preferred_email(headers: &HeaderMap) -> Option<String> {
@@ -450,7 +624,336 @@ fn err(
     message: impl Into<String>,
     code: &str,
     fault: Option<&str>,
-) -> axum::response::Response {
+) -> Response {
     let body: Value = openai_error(message, code, fault);
     (status, Json(body)).into_response()
+}
+
+#[cfg(test)]
+mod auth_integration {
+    use super::*;
+    use auth::{AuthConfig, AuthService, Role};
+    use axum::body::Body;
+    use axum::http::Request;
+    use helper_client::{HelperClient, PinAccount};
+    use std::collections::HashMap;
+    use tokio::sync::Semaphore;
+    use tower::ServiceExt;
+
+    fn test_app_state() -> Arc<AppState> {
+        let path = std::env::temp_dir().join(format!("gw-auth-{}.db", uuid::Uuid::new_v4()));
+        let cfg = AuthConfig {
+            db_path: path.to_string_lossy().into(),
+            jwt_secret: "integration-test-secret-32-bytes!!".into(),
+            jwt_ttl_secs: 3600,
+            cookie_name: "gws_session".into(),
+            cookie_secure: false,
+            allow_public_register: false,
+            disabled: false,
+            bootstrap_user: Some("admin".into()),
+            bootstrap_password: Some("integration-admin-pass".into()),
+        };
+        let auth = Arc::new(AuthService::open(cfg).unwrap());
+        let pin = PinAccount {
+            email: "test@example.com".into(),
+            access_token: String::new(),
+            device_id: None,
+            proxy: None,
+            user_agent: None,
+        };
+        Arc::new(AppState {
+            helper: HelperClient::new("http://127.0.0.1:1").unwrap(),
+            pin: pin.clone(),
+            accounts: Arc::new(Mutex::new(HashMap::from([(pin.email.clone(), pin)]))),
+            listen: "127.0.0.1:0".into(),
+            min_image_quota: 1,
+            image_global_concurrency: 1,
+            image_sem: Arc::new(Semaphore::new(1)),
+            image_enabled: false,
+            auth,
+            static_dir: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn login_cookie_allows_me_route() {
+        let st = test_app_state();
+        let login_app = Router::new()
+            .route("/login", post(login))
+            .with_state(st.clone());
+        let resp = login_app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"username":"admin","password":"integration-admin-pass"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let cookie = resp
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        assert!(cookie.contains("gws_session="));
+
+        let me_app = Router::new()
+            .route("/me", get(me))
+            .layer(middleware::from_fn_with_state(st.clone(), require_auth))
+            .with_state(st);
+        let me_resp = me_app
+            .oneshot(
+                Request::builder()
+                    .uri("/me")
+                    .header("cookie", cookie.split(';').next().unwrap_or(""))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(me_resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn member_cannot_access_admin_middleware() {
+        let st = test_app_state();
+        st.auth
+            .create_user("member1", "pass", Role::Member)
+            .unwrap();
+        let token = st
+            .auth
+            .issue_token(&st.auth.authenticate("member1", "pass").unwrap())
+            .unwrap();
+        let app = Router::new()
+            .route("/admin-only", get(|| async { "ok" }))
+            .layer(middleware::from_fn(require_admin))
+            .layer(middleware::from_fn_with_state(st.clone(), require_auth))
+            .with_state(st);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/admin-only")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// Router construction used to panic on wildcard + `allow_credentials`.
+    /// Takes the spec directly so the cases don't race on process-wide env.
+    #[test]
+    fn cors_layer_builds_without_allowlist() {
+        let _app: Router = Router::new()
+            .route("/health", get(|| async { "ok" }))
+            .layer(cors_layer_from(""));
+    }
+
+    #[test]
+    fn cors_layer_builds_with_allowlist() {
+        let _app: Router = Router::new()
+            .route("/health", get(|| async { "ok" }))
+            .layer(cors_layer_from("https://ui.example.com"));
+    }
+
+    #[test]
+    fn cors_layer_builds_with_multiple_origins() {
+        let _app: Router = Router::new()
+            .route("/health", get(|| async { "ok" }))
+            .layer(cors_layer_from(
+                "https://a.example.com, https://b.example.com",
+            ));
+    }
+
+    #[test]
+    fn cors_layer_ignores_unparseable_origins() {
+        // All entries invalid degrades to the wildcard branch, not a panic.
+        let _app: Router = Router::new()
+            .route("/health", get(|| async { "ok" }))
+            .layer(cors_layer_from("not a header value\u{7f}, , "));
+    }
+
+    #[tokio::test]
+    async fn health_does_not_leak_pool_identity() {
+        let st = test_app_state();
+        let app = Router::new().route("/health", get(health)).with_state(st);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let body = String::from_utf8_lossy(&bytes);
+        assert!(
+            !body.contains("test@example.com"),
+            "/health is unauthenticated and must not disclose pool addresses: {body}"
+        );
+        assert!(!body.contains("pin_email"), "got: {body}");
+        assert!(body.contains("\"ok\":true"));
+    }
+
+    #[tokio::test]
+    async fn disabled_user_is_rejected_by_middleware() {
+        let st = test_app_state();
+        let member = st
+            .auth
+            .create_user("member2", "member-pass", Role::Member)
+            .unwrap();
+        let token = st
+            .auth
+            .issue_token(&st.auth.authenticate("member2", "member-pass").unwrap())
+            .unwrap();
+        // Token stays cryptographically valid — only the DB row changes.
+        st.auth.set_disabled(&member.id, true).unwrap();
+
+        let app = Router::new()
+            .route("/guarded", get(|| async { "ok" }))
+            .layer(middleware::from_fn_with_state(st.clone(), require_auth))
+            .with_state(st);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/guarded")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "a still-valid token for a disabled user must not pass"
+        );
+    }
+
+    #[tokio::test]
+    async fn role_demotion_takes_effect_before_token_expiry() {
+        let st = test_app_state();
+        let user = st
+            .auth
+            .create_user("demoted", "demote-pass", Role::Admin)
+            .unwrap();
+        let token = st
+            .auth
+            .issue_token(&st.auth.authenticate("demoted", "demote-pass").unwrap())
+            .unwrap();
+        st.auth.set_role(&user.id, Role::Member).unwrap();
+
+        let app = Router::new()
+            .route("/admin-only", get(|| async { "ok" }))
+            .layer(middleware::from_fn(require_admin))
+            .layer(middleware::from_fn_with_state(st.clone(), require_auth))
+            .with_state(st);
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/admin-only")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "role must be re-read from the DB, not trusted from the token"
+        );
+    }
+
+    #[tokio::test]
+    async fn login_response_body_omits_token() {
+        let st = test_app_state();
+        let app = Router::new()
+            .route("/login", post(login))
+            .with_state(st.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"username":"admin","password":"integration-admin-pass"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            body.get("token").is_none(),
+            "JWT must stay in the HttpOnly cookie, out of reach of JS: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn member_cannot_override_account_email() {
+        let st = test_app_state();
+        let err = resolve_account(&st, Some("victim@example.com".into()), false)
+            .await
+            .expect_err("member override must be refused");
+        assert_eq!(err.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn member_without_override_gets_pin_account() {
+        let st = test_app_state();
+        let acc = resolve_account(&st, None, false)
+            .await
+            .expect("pin account");
+        assert_eq!(acc.email, "test@example.com");
+    }
+
+    #[tokio::test]
+    async fn unknown_account_is_rejected_not_fabricated() {
+        let st = test_app_state();
+        // Helper is unreachable in tests, so the lookup cannot be satisfied.
+        let err = resolve_account(&st, Some("ghost@example.com".into()), true)
+            .await
+            .expect_err("unknown account must not be fabricated with an empty token");
+        assert_eq!(err.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn admin_override_resolves_known_account() {
+        let st = test_app_state();
+        {
+            let mut guard = st.accounts.lock().await;
+            guard.insert(
+                "second@example.com".into(),
+                PinAccount {
+                    email: "second@example.com".into(),
+                    access_token: "tok".into(),
+                    device_id: None,
+                    proxy: None,
+                    user_agent: None,
+                },
+            );
+        }
+        let acc = resolve_account(&st, Some("second@example.com".into()), true)
+            .await
+            .expect("admin override");
+        assert_eq!(acc.email, "second@example.com");
+    }
 }

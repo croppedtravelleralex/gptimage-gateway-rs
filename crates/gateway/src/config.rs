@@ -30,6 +30,7 @@ pub struct Config {
     pub min_image_quota: i64,
     pub image_global_concurrency: usize,
     pub image_sem: Arc<Semaphore>,
+    pub image_enabled: bool,
 }
 
 pub fn load() -> Result<Config> {
@@ -45,6 +46,10 @@ pub fn load() -> Result<Config> {
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(3)
         .max(1);
+    let image_enabled = env::var("IMAGE_ENABLED")
+        .ok()
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
 
     let account = if let Ok(path) = env::var("PIN_ACCOUNT_FILE") {
         load_account_file(PathBuf::from(path))?
@@ -75,6 +80,7 @@ pub fn load() -> Result<Config> {
         min_image_quota,
         image_global_concurrency,
         image_sem,
+        image_enabled,
     })
 }
 

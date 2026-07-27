@@ -1,0 +1,4 @@
+{"type":"conversation.delta","delta":"partial"}
+{"type":"conversation.delta","delta":" text"}
+{"type":"skipped_mainline","payload":{"tool":"web_search"}}
+{"type":"conversation.done","text":"partial text","conversation_id":"cid-fixture"}
