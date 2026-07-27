@@ -1,9 +1,7 @@
 {
-  "url": "https://chatgpt.com/backend-api/estuary/files/file-fixture-001/download",
-  "headers": {
-    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-    "Authorization": "Bearer REDACTED"
-  },
-  "must_include": ["Authorization"],
-  "session": "api"
+  "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+  "Authorization": "Bearer REDACTED",
+  "must_include": [
+    "Authorization"
+  ]
 }

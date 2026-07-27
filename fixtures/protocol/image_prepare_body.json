@@ -2,18 +2,34 @@
   "action": "next",
   "parent_message_id": "client-created-root",
   "model": "gpt-image-2",
-  "client_prepare_state": "sent",
-  "client_prepare_dispatch": "immediate",
-  "client_prepare_source": "context_change",
+  "client_prepare_state": "none",
+  "client_prepare_dispatch": "debounced",
+  "client_prepare_source": "composer_editor_state",
   "timezone_offset_min": -480,
   "timezone": "Asia/Shanghai",
-  "conversation_mode": { "kind": "primary_assistant" },
-  "system_hints": ["picture_v2"],
+  "conversation_mode": {
+    "kind": "primary_assistant"
+  },
+  "system_hints": [],
   "partial_query": {
-    "id": "fixture-partial-query-id",
-    "author": { "role": "user" },
-    "content": { "content_type": "text", "parts": ["Create image"] }
+    "id": "00000000-0000-4000-8000-000000000002",
+    "author": {
+      "role": "user"
+    },
+    "content": {
+      "content_type": "text",
+      "parts": [
+        "sunset over ocean"
+      ]
+    }
   },
   "supports_buffering": true,
-  "supported_encodings": ["v1"]
+  "supported_encodings": [
+    "v1"
+  ],
+  "client_contextual_info": {
+    "app_name": "chatgpt.com",
+    "is_web_push_capable": true,
+    "is_web_push_enabled": false
+  }
 }

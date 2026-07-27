@@ -1,11 +1,19 @@
 {
-  "api_upload": {
-    "url": "https://chatgpt.com/backend-api/files",
-    "headers": { "Authorization": "Bearer REDACTED", "Content-Type": "application/json" }
+  "api_session": {
+    "must_include": [
+      "Authorization",
+      "OAI-Device-Id"
+    ]
   },
   "resource_put": {
-    "url": "https://s3.example/put",
-    "headers": { "Content-Type": "image/png" },
-    "must_not_include": ["Authorization", "OAI-Device-Id"]
+    "must_include": [
+      "Content-Type",
+      "x-ms-blob-type"
+    ],
+    "must_not_include": [
+      "Authorization",
+      "OAI-Device-Id",
+      "OAI-Language"
+    ]
   }
 }

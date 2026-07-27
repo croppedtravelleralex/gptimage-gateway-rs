@@ -13,6 +13,7 @@ data/auth.db-*
 !.env.example
 config.json
 secrets/
+helper/.venv/
 
 # Databases (data/auth.db above is a specific case of these)
 *.db

@@ -1,5 +1,5 @@
 {
-  "Authorization": "Bearer REDACTED",
-  "OAI-Device-Id": "REDACTED",
-  "OAI-Language": "en-US"
+  "OpenAI-Sentinel-Chat-Requirements-Token": "fixture-requirements-token",
+  "OpenAI-Sentinel-Chat-Requirements-Prepare-Token": "fixture-requirements-token",
+  "OpenAI-Sentinel-Proof-Token": "fixture-proof"
 }

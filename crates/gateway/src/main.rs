@@ -789,6 +789,48 @@ mod auth_integration {
     }
 
     #[tokio::test]
+    async fn logout_revokes_jti_session() {
+        let st = test_app_state();
+        let claims = st
+            .auth
+            .authenticate("admin", "integration-admin-pass")
+            .unwrap();
+        let token = st.auth.issue_token(&claims).unwrap();
+
+        let logout_app = Router::new()
+            .route("/logout", post(logout))
+            .with_state(st.clone());
+        let resp = logout_app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/logout")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let me_app = Router::new()
+            .route("/me", get(me))
+            .layer(middleware::from_fn_with_state(st.clone(), require_auth))
+            .with_state(st);
+        let me_resp = me_app
+            .oneshot(
+                Request::builder()
+                    .uri("/me")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(me_resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn member_cannot_access_admin_middleware() {
         let st = test_app_state();
         st.auth

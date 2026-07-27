@@ -3,17 +3,45 @@
   "messages": [
     {
       "id": "00000000-0000-4000-8000-000000000001",
-      "author": { "role": "user" },
-      "content": { "content_type": "text", "parts": ["hello fixture"] },
+      "author": {
+        "role": "user"
+      },
+      "content": {
+        "content_type": "text",
+        "parts": [
+          "hello fixture"
+        ]
+      },
       "metadata": {}
     }
   ],
-  "parent_message_id": "00000000-0000-4000-8000-000000000002",
   "model": "gpt-4o-mini",
+  "parent_message_id": "client-created-root",
+  "conversation_mode": {
+    "kind": "primary_assistant"
+  },
+  "client_prepare_state": "none",
+  "enable_message_followups": true,
+  "supports_buffering": true,
+  "supported_encodings": [
+    "v1"
+  ],
+  "system_hints": [],
+  "timezone": "Asia/Shanghai",
   "timezone_offset_min": -480,
-  "history_and_training_disabled": true,
-  "conversation_mode": { "kind": "primary_assistant" },
-  "force_paragen": false,
-  "force_rate_limit": false,
-  "websocket_request_id": "00000000-0000-4000-8000-000000000003"
+  "paragen_cot_summary_display_override": "allow",
+  "force_parallel_switch": "auto",
+  "client_contextual_info": {
+    "is_dark_mode": false,
+    "time_since_loaded": 120,
+    "page_height": 900,
+    "page_width": 1400,
+    "pixel_ratio": 2,
+    "screen_height": 1440,
+    "screen_width": 2560,
+    "app_name": "chatgpt.com",
+    "has_web_push_capabilities": true,
+    "web_push_notification_permission": "default"
+  },
+  "history_and_training_disabled": true
 }

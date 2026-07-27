@@ -107,7 +107,18 @@ pub async fn register(
     }
 }
 
-pub async fn logout(State(st): State<Arc<AppState>>, jar: CookieJar) -> impl IntoResponse {
+pub async fn logout(
+    State(st): State<Arc<AppState>>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if matches!(st.auth.config().mode, auth::AuthMode::Jwt) {
+        if let Ok(claims) = extract_claims(&st.auth, &headers) {
+            if let Some(ref jti) = claims.jti {
+                let _ = st.auth.revoke_jti(jti, claims.exp);
+            }
+        }
+    }
     let svc = &st.auth;
     let mut cookie = Cookie::build((svc.config().cookie_name.clone(), ""))
         .http_only(true)
@@ -174,6 +185,7 @@ pub async fn require_auth(
                     username: "dev".into(),
                     role: Role::Admin,
                     exp: usize::MAX,
+                    jti: None,
                 },
             });
             return next.run(req).await;
@@ -201,6 +213,7 @@ pub async fn require_auth(
                     username: "admin".into(),
                     role: Role::Admin,
                     exp: usize::MAX,
+                    jti: None,
                 },
             });
             return next.run(req).await;

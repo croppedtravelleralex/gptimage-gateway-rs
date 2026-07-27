@@ -1,0 +1,8 @@
+{
+  "captured_at": "2026-07-27T03:16:49Z",
+  "gptimage_root": "/mnt/d/SelfMadeTool/AutoRegister/gptimage",
+  "fixed_time": 1730000000.0,
+  "contextual_seed": "fixture-contextual-seed",
+  "contextual_jitter": false,
+  "spa_tool_path": true
+}

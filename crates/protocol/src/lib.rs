@@ -5,9 +5,13 @@ mod image_contract;
 
 pub use error_class::{classify_fault, ErrorClass};
 pub use image_contract::{
-    build_estuary_download_headers, build_image_prepare_body, build_image_start_body,
-    build_image_start_body_with_refs, validate_estuary_headers, validate_resource_put_headers,
-    ImageEditRequest, ImageRef,
+    assert_json_matches_except, build_estuary_download_headers, build_image_prepare_body,
+    build_image_prepare_body_opts, build_image_start_body, build_image_start_body_opts,
+    build_image_start_body_with_refs, build_image_start_body_with_refs_opts,
+    build_client_contextual_info, build_prepare_contextual_info, build_pure_http_image_contextual_info,
+    picture_v2_prompt,
+    validate_estuary_headers, validate_resource_put_headers, ContractOptions, ImageEditRequest,
+    ImageRef,
 };
 
 use serde::{Deserialize, Serialize};
@@ -139,9 +143,25 @@ fn chrono_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Build ChatGPT web conversation body (MVP text, no tools).
+/// Build ChatGPT web conversation body (SPA-aligned text chat).
 pub fn build_text_conversation_body(prompt: &str, model_slug: &str) -> Value {
-    let message_id = Uuid::new_v4().to_string();
+    build_text_conversation_body_opts(prompt, model_slug, &ContractOptions::default())
+}
+
+pub fn build_text_conversation_body_opts(
+    prompt: &str,
+    model_slug: &str,
+    opts: &ContractOptions,
+) -> Value {
+    let message_id = opts
+        .fixed_message_id
+        .clone()
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    let seed = if opts.contextual_seed.is_empty() {
+        opts.parent_message_id.clone()
+    } else {
+        opts.contextual_seed.clone()
+    };
     json!({
         "action": "next",
         "messages": [{
@@ -150,13 +170,23 @@ pub fn build_text_conversation_body(prompt: &str, model_slug: &str) -> Value {
             "content": { "content_type": "text", "parts": [prompt] },
             "metadata": {}
         }],
-        "parent_message_id": Uuid::new_v4().to_string(),
+        "parent_message_id": opts.parent_message_id,
         "model": model_slug,
-        "timezone_offset_min": -480,
-        "history_and_training_disabled": true,
         "conversation_mode": { "kind": "primary_assistant" },
-        "force_paragen": false,
-        "force_rate_limit": false,
-        "websocket_request_id": Uuid::new_v4().to_string()
+        "client_prepare_state": "none",
+        "enable_message_followups": true,
+        "supports_buffering": true,
+        "supported_encodings": ["v1"],
+        "system_hints": [],
+        "timezone": opts.timezone,
+        "timezone_offset_min": opts.timezone_offset_min,
+        "paragen_cot_summary_display_override": "allow",
+        "force_parallel_switch": "auto",
+        "client_contextual_info": build_client_contextual_info(
+            &seed,
+            opts.contextual_jitter,
+            "chatgpt.com",
+        ),
+        "history_and_training_disabled": true,
     })
 }

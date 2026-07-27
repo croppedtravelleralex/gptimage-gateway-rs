@@ -54,7 +54,7 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 
 - **Phase A**：Panda `Rust :8013` + `helper :19001`；跑的是 commit `7c34159` 的 943 行 MVP
 - **Phase A+**：鉴权 + `web/` 代码在，**未提交也未部署** → panda 上 `/api/auth/*` 全 404
-- **Phase B 契约**：**判定不成立** —— 夹具自证，与生产漂移 17 字段（本轮修了 1 项：固定 UUID）
+- **Phase B 契约**：**本地已对齐** —— `capture_protocol_fixtures.py` + `spa_tool_path=true`（Panda 默认）+ fixture diff 8/8 绿
 - **Phase B′**：**判据 1 通过**（TLS 指纹等价），判据 2/3/4 未测
 - **端点覆盖**：生产态 **7 / 129**（本地工作树 16，新增 `/api/admin/status`）
 - **数据面重写**：功能加权 12.8% / 工作树体量 8.3% / 已进 git 2.9% / **上游字节 0%**
@@ -96,12 +96,12 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 | 6 | 建 CI | `.github/workflows/ci.yml` 四道门禁 |
 | 7 | 清凭据 | 删 19 个死脚本（含 7 个带真实邮箱）；`bin/` 出 git；`.gitignore` 补 5 类 |
 
-**P1（下一批）**
+**P1（下一批）** —— ✅ 2026-07-27 本地闭环（未 push）
 
 1. ~~**提交这 1,764 行**~~ ✅ 2026-07-27 已提交（含 `web/`、CI、auth、fixtures、`docs/21`–`28`）
-2. Phase B 契约重做：夹具从 Python 侧真实捕获 + 全量 diff（17 项漂移只修了 1 项）
-3. `jti` 吊销表 —— `require_auth` 已回查用户状态，但 logout 仍不能服务端作废 token
-4. Phase B′ 判据 2：CF 通过率 A/B（用 chrome124 / chrome131，**弃用 chrome120**，见 [docs/27](docs/27-tls-fingerprint-spike-20260726.md) §2）
+2. ~~Phase B 契约重做~~ ✅ Python `capture_protocol_fixtures.py` + `spa_tool_path` 分支 + 8 项 fixture diff 全绿
+3. ~~`jti` 吊销表~~ ✅ `002_revoked_jti.sql` + logout 吊销 + `revoked_jti_rejects_token` / `logout_revokes_jti_session`
+4. ~~Phase B′ 判据 2 框架~~ ✅ `scripts/cf_pass_rate_ab.py` + [docs/29](docs/29-cf-pass-rate-ab-20260727.md)（实测需 CF 窗口 + `SPIKE_PROXY`）
 5. ~~**对齐 Panda 鉴权**~~ ✅ `AuthMode` + `GATEWAY_AUTH_KEY` + `PANDA_ALIGN=1` bringup（JWT/Web UI 仍为增强，见 [docs/28](docs/28-decisions-20260727.md) §1.4）
 
 **P2**
@@ -115,8 +115,18 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 ## 本地命令
 
 ```bash
-cargo test --workspace         # 56 passed
-cargo clippy -- -D warnings    # 0 warning
+# WSL：编译 + 全量测试
+cargo build --release -p gateway
+cargo test --workspace         # 51 passed（含 fixture golden + logout jti）
+
+# WSL：Panda :8013 等价 loopback（AUTH_DISABLE=1）
+bash scripts/local_bringup_wsl.sh   # helper :19001 + gateway :8013
+bash scripts/local_smoke.sh         # health / capabilities / models / 501
+
+# helper 依赖（无 docker chatgpt2api:local 时）：fastapi + gptimage pyproject 依赖
+# pip3 install --break-system-packages fastapi uvicorn pillow curl-cffi ...
+
+python scripts/capture_protocol_fixtures.py   # 重捕 fixtures/protocol/*.json
 python scripts/check_runlog_desense.py
 
 cd web && npm run build

@@ -16,6 +16,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 const MIGRATION_SQL: &str = include_str!("../migrations/001_users.sql");
+const MIGRATION_REVOKED_JTI: &str = include_str!("../migrations/002_revoked_jti.sql");
 
 /// Floor for the bootstrap admin password. Short enough not to obstruct setup,
 /// long enough that the first account isn't brute-forceable.
@@ -64,6 +65,8 @@ pub struct Claims {
     pub username: String,
     pub role: Role,
     pub exp: usize,
+    #[serde(default)]
+    pub jti: Option<String>,
 }
 
 /// How the gateway authenticates HTTP callers.
@@ -240,6 +243,8 @@ impl AuthService {
             .with_context(|| format!("open auth db {}", cfg.db_path))?;
         conn.execute_batch(MIGRATION_SQL)
             .context("run auth migrations")?;
+        conn.execute_batch(MIGRATION_REVOKED_JTI)
+            .context("run revoked_jti migration")?;
         let svc = Self {
             conn: Mutex::new(conn),
             cfg,
@@ -392,6 +397,7 @@ impl AuthService {
             username: user.username.clone(),
             role: user.role,
             exp: exp as usize,
+            jti: Some(Uuid::new_v4().to_string()),
         };
         encode(
             &Header::default(),
@@ -408,7 +414,52 @@ impl AuthService {
             &Validation::default(),
         )
         .map_err(|_| AuthError::InvalidToken)?;
+        if let Some(ref jti) = data.claims.jti {
+            if self.is_jti_revoked(jti)? {
+                return Err(AuthError::InvalidToken);
+            }
+        }
         Ok(data.claims)
+    }
+
+    pub fn revoke_jti(&self, jti: &str, exp: usize) -> Result<(), AuthError> {
+        let jti = jti.trim();
+        if jti.is_empty() {
+            return Ok(());
+        }
+        let revoked_at = OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_else(|_| "1970-01-01T00:00:00Z".into());
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AuthError::Other(e.to_string()))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO revoked_jti (jti, revoked_at, exp) VALUES (?1, ?2, ?3)",
+            params![jti, revoked_at, exp as i64],
+        )
+        .map_err(|e| AuthError::Other(e.to_string()))?;
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let _ = conn.execute(
+            "DELETE FROM revoked_jti WHERE exp < ?1",
+            params![now],
+        );
+        Ok(())
+    }
+
+    fn is_jti_revoked(&self, jti: &str) -> Result<bool, AuthError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AuthError::Other(e.to_string()))?;
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM revoked_jti WHERE jti = ?1",
+                params![jti],
+                |r| r.get(0),
+            )
+            .map_err(|e| AuthError::Other(e.to_string()))?;
+        Ok(n > 0)
     }
 
     pub fn get_user_by_id(&self, id: &str) -> Result<User, AuthError> {
@@ -613,6 +664,20 @@ mod tests {
         assert_eq!(Role::parse("admin"), Some(Role::Admin));
         assert_eq!(Role::parse("MEMBER"), Some(Role::Member));
         assert_eq!(Role::parse("x"), None);
+    }
+
+    #[test]
+    fn revoked_jti_rejects_token() {
+        let svc = AuthService::open(temp_cfg()).unwrap();
+        let user = svc.authenticate("admin", "bootstrap-pass-ok").unwrap();
+        let token = svc.issue_token(&user).unwrap();
+        let claims = svc.verify_token(&token).unwrap();
+        let jti = claims.jti.expect("jti");
+        svc.revoke_jti(&jti, claims.exp).unwrap();
+        assert!(matches!(
+            svc.verify_token(&token),
+            Err(AuthError::InvalidToken)
+        ));
     }
 
     #[test]
