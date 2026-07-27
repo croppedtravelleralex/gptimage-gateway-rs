@@ -13,7 +13,8 @@ pub async fn capabilities(State(st): State<Arc<AppState>>) -> Json<Value> {
         "wave": "phase-b-lite",
         "helper_ok": helper_ok,
         "features": {
-            "auth": !st.auth.config().disabled,
+            "auth": !st.auth.config().auth_disabled(),
+            "auth_mode": st.auth.config().mode.as_str(),
             "chat": true,
             "chat_stream": true,
             "models": true,
@@ -49,7 +50,8 @@ pub async fn admin_status(State(st): State<Arc<AppState>>) -> Json<Value> {
         "image_sem_available": st.image_sem.available_permits(),
         "min_image_quota": st.min_image_quota,
         "image_enabled": st.image_enabled,
-        "auth_disabled": st.auth.config().disabled,
+        "auth_disabled": st.auth.config().auth_disabled(),
+        "auth_mode": st.auth.config().mode.as_str(),
         "static_ui": st.static_dir.is_some(),
     }))
 }

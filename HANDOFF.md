@@ -102,7 +102,7 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 2. Phase B 契约重做：夹具从 Python 侧真实捕获 + 全量 diff（17 项漂移只修了 1 项）
 3. `jti` 吊销表 —— `require_auth` 已回查用户状态，但 logout 仍不能服务端作废 token
 4. Phase B′ 判据 2：CF 通过率 A/B（用 chrome124 / chrome131，**弃用 chrome120**，见 [docs/27](docs/27-tls-fingerprint-spike-20260726.md) §2）
-5. **对齐 Panda 鉴权**：`:8013` 部署 `AUTH_DISABLE=1`；R2 前实现 `:8012` API key 兼容（JWT/Web UI 为后续增强，见 [docs/28](docs/28-decisions-20260727.md) §1.4）
+5. ~~**对齐 Panda 鉴权**~~ ✅ `AuthMode` + `GATEWAY_AUTH_KEY` + `PANDA_ALIGN=1` bringup（JWT/Web UI 仍为增强，见 [docs/28](docs/28-decisions-20260727.md) §1.4）
 
 **P2**
 

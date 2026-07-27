@@ -193,7 +193,8 @@ async fn main() -> anyhow::Result<()> {
         email=%cfg.account_email_log,
         image_global_concurrency=%cfg.image_global_concurrency,
         image_enabled=%cfg.image_enabled,
-        auth_disabled=%state.auth.config().disabled,
+        auth_disabled=%state.auth.config().auth_disabled(),
+        auth_mode=%state.auth.config().mode.as_str(),
         "gateway listening (rust)"
     );
     axum::serve(listener, app).await?;
@@ -213,7 +214,8 @@ async fn health(State(st): State<Arc<AppState>>) -> impl IntoResponse {
         "helper_ok": helper_ok,
         "accounts": n_accounts,
         "image_enabled": st.image_enabled,
-        "auth_disabled": st.auth.config().disabled,
+        "auth_disabled": st.auth.config().auth_disabled(),
+        "auth_mode": st.auth.config().mode.as_str(),
         "static_ui": st.static_dir.is_some(),
     }))
 }
@@ -632,7 +634,7 @@ fn err(
 #[cfg(test)]
 mod auth_integration {
     use super::*;
-    use auth::{AuthConfig, AuthService, Role};
+    use auth::{AuthConfig, AuthMode, AuthService, Role};
     use axum::body::Body;
     use axum::http::Request;
     use helper_client::{HelperClient, PinAccount};
@@ -649,7 +651,8 @@ mod auth_integration {
             cookie_name: "gws_session".into(),
             cookie_secure: false,
             allow_public_register: false,
-            disabled: false,
+            mode: AuthMode::Jwt,
+            gateway_auth_key: None,
             bootstrap_user: Some("admin".into()),
             bootstrap_password: Some("integration-admin-pass".into()),
         };
@@ -673,6 +676,70 @@ mod auth_integration {
             auth,
             static_dir: None,
         })
+    }
+
+    #[tokio::test]
+    async fn api_key_mode_accepts_matching_bearer() {
+        let path = std::env::temp_dir().join(format!("gw-apikey-{}.db", uuid::Uuid::new_v4()));
+        let cfg = AuthConfig {
+            db_path: path.to_string_lossy().into(),
+            jwt_secret: String::new(),
+            mode: AuthMode::ApiKey,
+            gateway_auth_key: Some("panda-align-key".into()),
+            bootstrap_user: None,
+            bootstrap_password: None,
+            jwt_ttl_secs: 3600,
+            cookie_name: "gws_session".into(),
+            cookie_secure: false,
+            allow_public_register: false,
+        };
+        let auth = Arc::new(AuthService::open(cfg).unwrap());
+        let pin = PinAccount {
+            email: "test@example.com".into(),
+            access_token: String::new(),
+            device_id: None,
+            proxy: None,
+            user_agent: None,
+        };
+        let st = Arc::new(AppState {
+            helper: HelperClient::new("http://127.0.0.1:1").unwrap(),
+            pin: pin.clone(),
+            accounts: Arc::new(Mutex::new(HashMap::from([(pin.email.clone(), pin)]))),
+            listen: "127.0.0.1:0".into(),
+            min_image_quota: 1,
+            image_global_concurrency: 1,
+            image_sem: Arc::new(Semaphore::new(1)),
+            image_enabled: false,
+            auth,
+            static_dir: None,
+        });
+        let app = Router::new()
+            .route("/guarded", get(|| async { "ok" }))
+            .layer(middleware::from_fn_with_state(st.clone(), require_auth))
+            .with_state(st);
+        let ok = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/guarded")
+                    .header("authorization", "Bearer panda-align-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ok.status(), StatusCode::OK);
+        let bad = app
+            .oneshot(
+                Request::builder()
+                    .uri("/guarded")
+                    .header("authorization", "Bearer wrong")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(bad.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

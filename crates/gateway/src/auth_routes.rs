@@ -1,7 +1,7 @@
 //! Auth HTTP routes and JWT extraction for gateway.
 
 use crate::state::AppState;
-use auth::{AuthError, AuthService, Claims, Role, User};
+use auth::{AuthError, AuthMode, AuthService, Claims, Role, User};
 use axum::{
     extract::{FromRequestParts, Request, State},
     http::{header, request::Parts, HeaderMap, StatusCode},
@@ -166,17 +166,48 @@ pub async fn require_auth(
     mut req: Request,
     next: Next,
 ) -> Response {
-    if st.auth.config().disabled {
-        req.extensions_mut().insert(AuthUser {
-            claims: Claims {
-                sub: "auth-disabled".into(),
-                username: "dev".into(),
-                role: Role::Admin,
-                exp: usize::MAX,
-            },
-        });
-        return next.run(req).await;
+    match st.auth.config().mode {
+        AuthMode::Disabled => {
+            req.extensions_mut().insert(AuthUser {
+                claims: Claims {
+                    sub: "auth-disabled".into(),
+                    username: "dev".into(),
+                    role: Role::Admin,
+                    exp: usize::MAX,
+                },
+            });
+            return next.run(req).await;
+        }
+        AuthMode::ApiKey => {
+            let expected = match st.auth.config().gateway_auth_key.as_deref() {
+                Some(k) => k,
+                None => {
+                    return auth_err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "api_key mode misconfigured",
+                    )
+                }
+            };
+            let token = match bearer_token(req.headers()) {
+                Some(t) => t,
+                None => return auth_err(StatusCode::UNAUTHORIZED, "missing bearer token"),
+            };
+            if !constant_time_eq(&token, expected) {
+                return auth_err(StatusCode::UNAUTHORIZED, "invalid api key");
+            }
+            req.extensions_mut().insert(AuthUser {
+                claims: Claims {
+                    sub: "api-key".into(),
+                    username: "admin".into(),
+                    role: Role::Admin,
+                    exp: usize::MAX,
+                },
+            });
+            return next.run(req).await;
+        }
+        AuthMode::Jwt => {}
     }
+
     let claims = match extract_claims(&st.auth, req.headers()) {
         Ok(c) => c,
         Err(resp) => return *resp,
@@ -289,4 +320,15 @@ pub fn auth_err(status: StatusCode, message: &str) -> Response {
         })),
     )
         .into_response()
+}
+
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.bytes().zip(b.bytes()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }

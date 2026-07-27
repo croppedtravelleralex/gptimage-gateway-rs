@@ -66,6 +66,28 @@ pub struct Claims {
     pub exp: usize,
 }
 
+/// How the gateway authenticates HTTP callers.
+///
+/// Panda alignment: `Disabled` matches `:8013` (`AUTH_DISABLE=1`);
+/// `ApiKey` matches `:8012` `config.auth_key`; `Jwt` is an enhancement layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMode {
+    Disabled,
+    ApiKey,
+    Jwt,
+}
+
+impl AuthMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AuthMode::Disabled => "disabled",
+            AuthMode::ApiKey => "api_key",
+            AuthMode::Jwt => "jwt",
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AuthConfig {
     pub db_path: String,
@@ -74,7 +96,9 @@ pub struct AuthConfig {
     pub cookie_name: String,
     pub cookie_secure: bool,
     pub allow_public_register: bool,
-    pub disabled: bool,
+    pub mode: AuthMode,
+    /// Panda `:8012` legacy admin key (`config.auth_key`); used when `mode == ApiKey`.
+    pub gateway_auth_key: Option<String>,
     pub bootstrap_user: Option<String>,
     pub bootstrap_password: Option<String>,
 }
@@ -89,7 +113,8 @@ impl std::fmt::Debug for AuthConfig {
             .field("cookie_name", &self.cookie_name)
             .field("cookie_secure", &self.cookie_secure)
             .field("allow_public_register", &self.allow_public_register)
-            .field("disabled", &self.disabled)
+            .field("mode", &self.mode)
+            .field("gateway_auth_key", &self.gateway_auth_key.as_ref().map(|_| "<redacted>"))
             .field("bootstrap_user", &self.bootstrap_user)
             .field("bootstrap_password", &"<redacted>")
             .finish()
@@ -97,27 +122,55 @@ impl std::fmt::Debug for AuthConfig {
 }
 
 impl AuthConfig {
+    pub fn auth_disabled(&self) -> bool {
+        matches!(self.mode, AuthMode::Disabled)
+    }
+
     pub fn from_env() -> Result<Self> {
         let disabled = std::env::var("AUTH_DISABLE")
             .ok()
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
-        // No fallback secret: a hardcoded default is guessable, and the previous
-        // one was 36 bytes so it slipped past the length check below.
+
+        let gateway_auth_key = std::env::var("GATEWAY_AUTH_KEY")
+            .or_else(|_| std::env::var("AUTH_KEY"))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        let auth_mode_env = std::env::var("AUTH_MODE")
+            .ok()
+            .map(|s| s.trim().to_ascii_lowercase());
+
+        let mode = if disabled {
+            AuthMode::Disabled
+        } else if auth_mode_env.as_deref() == Some("jwt") {
+            AuthMode::Jwt
+        } else if gateway_auth_key.is_some() {
+            AuthMode::ApiKey
+        } else if auth_mode_env.as_deref() == Some("api_key") {
+            anyhow::bail!("AUTH_MODE=api_key requires GATEWAY_AUTH_KEY (or AUTH_KEY)");
+        } else {
+            anyhow::bail!(
+                "auth enabled: set GATEWAY_AUTH_KEY for Panda :8012 API-key parity, \
+                 or AUTH_MODE=jwt + AUTH_JWT_SECRET for dashboard enhancement"
+            );
+        };
+
         let jwt_secret = match std::env::var("AUTH_JWT_SECRET") {
             Ok(s) => s,
-            Err(_) if disabled => String::new(),
-            Err(_) => anyhow::bail!(
-                "AUTH_JWT_SECRET is required (>=32 bytes). Set AUTH_DISABLE=1 for local dev only."
-            ),
+            Err(_) if mode != AuthMode::Jwt => String::new(),
+            Err(_) => anyhow::bail!("AUTH_MODE=jwt requires AUTH_JWT_SECRET (>=32 bytes)"),
         };
-        if !disabled && jwt_secret.len() < 32 {
-            anyhow::bail!("AUTH_JWT_SECRET must be at least 32 bytes when auth enabled");
+        if mode == AuthMode::Jwt && jwt_secret.len() < 32 {
+            anyhow::bail!("AUTH_JWT_SECRET must be at least 32 bytes when AUTH_MODE=jwt");
         }
-        if disabled {
+        if mode == AuthMode::Disabled {
             tracing::warn!(
-                "AUTH_DISABLE=1 — every request is treated as admin. Never use in production."
+                "AUTH_DISABLE=1 — every request is treated as admin (Panda :8013 parity)"
             );
+        } else if mode == AuthMode::ApiKey {
+            tracing::info!("auth mode api_key — Bearer must match GATEWAY_AUTH_KEY");
         }
         Ok(Self {
             db_path: std::env::var("AUTH_DB_PATH").unwrap_or_else(|_| "data/auth.db".into()),
@@ -135,7 +188,8 @@ impl AuthConfig {
                 .ok()
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false),
-            disabled,
+            mode,
+            gateway_auth_key,
             bootstrap_user: std::env::var("AUTH_BOOTSTRAP_ADMIN_USER").ok(),
             bootstrap_password: std::env::var("AUTH_BOOTSTRAP_ADMIN_PASSWORD").ok(),
         })
@@ -153,7 +207,7 @@ impl std::fmt::Debug for AuthService {
         // print it on any `{:?}` of the service.
         f.debug_struct("AuthService")
             .field("db_path", &self.cfg.db_path)
-            .field("disabled", &self.cfg.disabled)
+            .field("mode", &self.cfg.mode)
             .finish_non_exhaustive()
     }
 }
@@ -205,6 +259,10 @@ impl AuthService {
             .map_err(|e| anyhow!(e.to_string()))?
             .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))?;
         if count > 0 {
+            return Ok(());
+        }
+        if matches!(self.cfg.mode, AuthMode::Disabled | AuthMode::ApiKey) {
+            // Panda :8013 (disabled) and :8012 API-key paths do not need SQLite users.
             return Ok(());
         }
         // Seeding a well-known admin/password pair would make every default
@@ -451,7 +509,8 @@ mod tests {
             cookie_name: "gws_session".into(),
             cookie_secure: false,
             allow_public_register: false,
-            disabled: false,
+            mode: AuthMode::Jwt,
+            gateway_auth_key: None,
             bootstrap_user: Some("admin".into()),
             bootstrap_password: Some("bootstrap-pass-ok".into()),
         }
@@ -554,6 +613,21 @@ mod tests {
         assert_eq!(Role::parse("admin"), Some(Role::Admin));
         assert_eq!(Role::parse("MEMBER"), Some(Role::Member));
         assert_eq!(Role::parse("x"), None);
+    }
+
+    #[test]
+    fn api_key_mode_skips_bootstrap() {
+        let path = std::env::temp_dir().join(format!("auth-apikey-{}.db", Uuid::new_v4()));
+        let cfg = AuthConfig {
+            db_path: path.to_string_lossy().into(),
+            jwt_secret: String::new(),
+            mode: AuthMode::ApiKey,
+            gateway_auth_key: Some("panda-test-key".into()),
+            bootstrap_user: None,
+            bootstrap_password: None,
+            ..temp_cfg()
+        };
+        assert!(AuthService::open(cfg).is_ok());
     }
 
     #[test]

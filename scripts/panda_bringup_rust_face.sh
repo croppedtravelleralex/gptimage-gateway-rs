@@ -57,6 +57,14 @@ export HELPER_INTERNAL_TOKEN
 AUTH_DISABLE="${AUTH_DISABLE:-0}"
 GATEWAY_LISTEN="${GATEWAY_LISTEN:-127.0.0.1:8013}"
 
+# Panda :8013 parity preset (docs/28-decisions-20260727.md §2).
+if [[ "${PANDA_ALIGN:-}" == "1" ]]; then
+  AUTH_DISABLE=1
+  IMAGE_ENABLED=1
+  GATEWAY_LISTEN=0.0.0.0:8013
+  echo "PANDA_ALIGN=1: AUTH_DISABLE=1 IMAGE_ENABLED=1 GATEWAY_LISTEN=0.0.0.0:8013"
+fi
+
 if [[ "$AUTH_DISABLE" != "1" ]]; then
   if [[ -z "${AUTH_JWT_SECRET:-}" ]]; then
     if [[ -f "$ROOT/secrets/jwt_secret" ]]; then
@@ -70,11 +78,16 @@ if [[ "$AUTH_DISABLE" != "1" ]]; then
   export AUTH_JWT_SECRET
 fi
 
-# Refuse the one combination that puts an unauthenticated pool API on the wire.
+# Refuse the one combination that puts an unauthenticated pool API on the wire,
+# unless explicitly reproducing Panda (:8013) or opting in.
 if [[ "$AUTH_DISABLE" == "1" && "$GATEWAY_LISTEN" != 127.0.0.1:* && "$GATEWAY_LISTEN" != localhost:* ]]; then
-  echo "FATAL: AUTH_DISABLE=1 with non-loopback GATEWAY_LISTEN=$GATEWAY_LISTEN"
-  echo "  That exposes the account pool with no authentication. Refusing."
-  exit 2
+  if [[ "${PANDA_ALIGN:-}" != "1" && "${ALLOW_INSECURE_PUBLIC:-}" != "1" ]]; then
+    echo "FATAL: AUTH_DISABLE=1 with non-loopback GATEWAY_LISTEN=$GATEWAY_LISTEN"
+    echo "  That exposes the account pool with no authentication. Refusing."
+    echo "  To reproduce Panda :8013: PANDA_ALIGN=1 bash $0"
+    exit 2
+  fi
+  echo "WARNING: unauthenticated public bind (PANDA_ALIGN or ALLOW_INSECURE_PUBLIC)"
 fi
 
 # Stop Python face (old MVP) and any prior helper/rust face.
