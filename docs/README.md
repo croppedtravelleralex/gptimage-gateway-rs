@@ -6,7 +6,7 @@
 | [13-perf-baseline-compare.md](13-perf-baseline-compare.md) | ⛔ **预估已作废** — 保留记录，真数字见 26 |
 | [17-operator-guide.md](17-operator-guide.md) | Panda 拓扑、bringup、故障树（2026-07-26 按实测改写） |
 | [18-test-matrix.md](18-test-matrix.md) | 验收矩阵与签字栏 |
-| [21-auth-and-ui.md](21-auth-and-ui.md) | 鉴权、Web UI、环境变量（**描述的是未部署版本**） |
+| [21-auth-and-ui.md](21-auth-and-ui.md) | JWT / Web UI（**超越 Panda 的增强**，非对齐前置；尚未部署） |
 | [22-audit-2026-07-26.md](22-audit-2026-07-26.md) | **全量审计** — 构建阻断、7 安全 CRITICAL、契约自证、文档不符 |
 | [23-rewrite-progress.md](23-rewrite-progress.md) | **重写进度量化** — 六个口径、双轨结构、Phase 声称/实际对照 |
 | [24-gap-inventory.md](24-gap-inventory.md) | **能力 gap 全量盘点** — 129 端点 / 42 数据面能力 / 20 种 SSE 事件 / 13 条重试策略 / 71 配置键 |

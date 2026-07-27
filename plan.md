@@ -256,11 +256,13 @@ CI 与 panda 镜像都要预置。这是引入 `wreq` 的真实代价，不可�
 **若判据 2 失败**：把「数据面重写」从 §0 目标中删除，本项目定位正式改为 **face + 鉴权层**。
 这是一个必须显式记录的决策点。
 
-### Phase A+ — 鉴权 / UI / 简易后端（当前交付）
+### Phase A+ — 鉴权 / UI / 简易后端（**后续增强**，非 Panda 对齐前置）
+
+> Panda 对齐不要求启用本节。JWT / Web UI 在 `:8013` 现网不存在；见 [docs/28](docs/28-decisions-20260727.md) §1.4。
 
 | 交付 | 完成判据 |
 |------|----------|
-| SQLite + JWT | admin/member 登录；cookie `gws_session` |
+| SQLite + JWT | admin/member 登录；cookie `gws_session`（**增强**，需 `AUTH_DISABLE=0`） |
 | `web/` dashboard | 登录、对话、管理页；`npm run build` 绿 |
 | 能力探测 | `GET /api/backend/capabilities` |
 | 生图默认关 | `IMAGE_ENABLED=0`；UI 占位 |
@@ -432,7 +434,7 @@ Panda：禁止 `cargo build`；`git pull` + 预编译 `bin/` + `bash scripts/pan
 | 1 | 双轨处置 | **合流** — `path` 依赖 `image_schedule_core` + `image_schedule_trace` | Phase C 接线；路径 A 未入库源码先推 `gptimage` git |
 | 2 | `ticket_pool` | **冻结** — 移出 workspace，保留源码 | `Cargo.toml` 已摘除 |
 | 3 | `control_client` | **移除** — 移出 workspace | Phase C 对接 Python 调度面，不用 phantom admission |
-| 4 | 鉴权模型 | **R2 目标 = `:8012` API key**；`:8013` 切流前对齐现 Panda（`AUTH_DISABLE=1`）；JWT 仅 Web UI 可选层 | API key 实现单列 R2 任务 |
+| 4 | 鉴权模型 | **先对齐 Panda**（`:8013` 无鉴权、R2 前 `:8012` API key）；JWT/Web UI = **后续增强** | API key = P1；`auth`/`web` 不阻塞 Panda 部署 |
 | 5 | 异步图片队列 | **在范围内**（数据面） | 分母已含 `image_task_service` 2,456 行 |
 | 6 | CPA 7 端点 | **非永久非目标** | gap 待对齐，优先级 Phase D |
 
