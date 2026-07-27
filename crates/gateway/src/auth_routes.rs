@@ -132,6 +132,16 @@ pub async fn logout(
 }
 
 pub async fn me(State(st): State<Arc<AppState>>, user: AuthUser) -> impl IntoResponse {
+    if matches!(
+        st.auth.config().mode,
+        AuthMode::Disabled | AuthMode::ApiKey
+    ) {
+        return Json(json!({
+            "ok": true,
+            "user": user_public_from_claims(&user.claims),
+        }))
+        .into_response();
+    }
     match st.auth.get_user_by_id(&user.claims.sub) {
         Ok(u) => Json(json!({"ok": true, "user": user_public(&u)})).into_response(),
         Err(_) => auth_err(StatusCode::UNAUTHORIZED, "user not found"),
@@ -321,6 +331,16 @@ fn user_public(u: &User) -> Value {
         "role": u.role,
         "created_at": u.created_at,
         "disabled": u.disabled,
+    })
+}
+
+fn user_public_from_claims(claims: &Claims) -> Value {
+    json!({
+        "id": claims.sub,
+        "username": claims.username,
+        "role": claims.role,
+        "created_at": "",
+        "disabled": false,
     })
 }
 

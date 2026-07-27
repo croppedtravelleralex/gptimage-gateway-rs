@@ -15,9 +15,8 @@ async function apiFetch<T>(
   });
   const data = (await res.json().catch(() => ({}))) as T;
   if (!res.ok) {
-    throw new Error(
-      (data as { error?: string }).error || `HTTP ${res.status}`,
-    );
+    const err = data as { error?: string; message?: string };
+    throw new Error(err.error || err.message || `HTTP ${res.status}`);
   }
   return data;
 }
@@ -37,6 +36,8 @@ export const api = {
       body: JSON.stringify({ username, password, role }),
     }),
   health: () => apiFetch<import("./api-types").HealthResponse>("/health"),
+  adminStatus: () =>
+    apiFetch<import("./api-types").AdminStatusResponse>("/api/admin/status"),
   capabilities: () =>
     apiFetch<import("./api-types").BackendCapabilities>(
       "/api/backend/capabilities",
@@ -46,6 +47,11 @@ export const api = {
       "/v1/accounts/candidates",
     ),
   quota: () => apiFetch<import("./api-types").QuotaResponse>("/v1/quota"),
+  quotaRefresh: () =>
+    apiFetch<import("./api-types").QuotaResponse>("/v1/quota/refresh", {
+      method: "POST",
+      body: "{}",
+    }),
   listUsers: () =>
     apiFetch<import("./api-types").UsersListResponse>("/api/admin/users"),
   setUserDisabled: (userId: string, disabled: boolean) =>
@@ -87,3 +93,41 @@ export const api = {
       }),
     }),
 };
+
+/** Parse OpenAI-style SSE from chat stream into accumulated text. */
+export async function readChatStream(res: Response): Promise<string> {
+  if (!res.ok || !res.body) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(
+      (data as { error?: { message?: string } })?.error?.message ||
+        `HTTP ${res.status}`,
+    );
+  }
+  const decoder = new TextDecoder();
+  const reader = res.body.getReader();
+  let buffer = "";
+  let content = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const chunk = JSON.parse(payload) as {
+          choices?: { delta?: { content?: string } }[];
+        };
+        const delta = chunk.choices?.[0]?.delta?.content;
+        if (delta) content += delta;
+      } catch {
+        /* ignore partial JSON */
+      }
+    }
+  }
+  return content;
+}

@@ -53,7 +53,7 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 ## 当前状态
 
 - **Phase A**：Panda `Rust :8013` + `helper :19001`；跑的是 commit `7c34159` 的 943 行 MVP
-- **Phase A+**：鉴权 + `web/` 代码在，**未提交也未部署** → panda 上 `/api/auth/*` 全 404
+- **Phase A+**：鉴权 + `web/` **本地全栈可跑**（`LOCAL_MODE=full`）；panda 仍未部署
 - **Phase B 契约**：**本地已对齐** —— `capture_protocol_fixtures.py` + `spa_tool_path=true`（Panda 默认）+ fixture diff 8/8 绿
 - **Phase B′**：**判据 1 通过**（TLS 指纹等价），判据 2/3/4 未测
 - **端点覆盖**：生产态 **7 / 129**（本地工作树 16，新增 `/api/admin/status`）
@@ -80,7 +80,7 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 | 对话 | `POST /v1/chat/completions` | member + admin |
 | 号池/额度 | `/v1/accounts/candidates` `/v1/quota*` | admin |
 | 用户管理 | `/api/admin/users` | admin |
-| 生图 | `/v1/images/*` | **默认 501 deferred** |
+| 生图 | `/v1/images/*` | **IMAGE_ENABLED=1** 时经 helper 执行；edits 仍 501 |
 
 ## 下一步
 
@@ -112,27 +112,34 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 
 **待决策（6 项）** —— ✅ 已全部闭合，见 [docs/28-decisions-20260727.md](docs/28-decisions-20260727.md)（以 Panda 现网为准）。
 
-## 本地命令
+## 本地命令（WSL 全栈）
 
 ```bash
-# WSL：编译 + 全量测试
-cargo build --release -p gateway
-cargo test --workspace         # 51 passed（含 fixture golden + logout jti）
+# 1) 一次性：helper Python 依赖
+bash scripts/setup_wsl_helper_deps.sh
 
-# WSL：Panda :8013 等价 loopback（AUTH_DISABLE=1）
-bash scripts/local_bringup_wsl.sh   # helper :19001 + gateway :8013
-bash scripts/local_smoke.sh         # health / capabilities / models / 501
+# 2) 编辑 secrets/pin_account.json（从 deploy/pin_account.json.example 复制）填入真实 token/proxy
 
-# helper 依赖（无 docker chatgpt2api:local 时）：fastapi + gptimage pyproject 依赖
-# pip3 install --break-system-packages fastapi uvicorn pillow curl-cffi ...
+# 3) 全栈启动（默认 LOCAL_MODE=full：JWT + IMAGE_ENABLED=1 + web/out UI）
+bash scripts/local_bringup_wsl.sh
 
-python scripts/capture_protocol_fixtures.py   # 重捕 fixtures/protocol/*.json
-python scripts/check_runlog_desense.py
+# 4) 验收
+bash scripts/local_smoke_full.sh
 
-cd web && npm run build
+# 仅 API 冒烟（无 UI / 无鉴权）
+LOCAL_MODE=minimal bash scripts/local_bringup_wsl.sh
+IMAGE_SMOKE_EXPECT=501 bash scripts/local_smoke.sh
+
+cargo test --workspace
 ```
 
-启动需要的最小环境（缺任一项 fail-fast）：
+浏览器打开 `http://127.0.0.1:8013/`，管理员账号见 `secrets/local_admin_password`。
+
+**LOCAL_MODE=full 包含**：release 编译、Next.js 静态导出、`GATEWAY_STATIC_DIR`、JWT bootstrap、生图开关、helper MVP 超时参数。
+
+**仍依赖 sibling `../gptimage`**：数据面（TLS/PoW/SSE/上游）在 helper，非 Rust 直连。
+
+## 本地命令（开发单项）
 
 ```bash
 HELPER_INTERNAL_TOKEN=$(openssl rand -hex 32) \

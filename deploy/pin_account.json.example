@@ -1,0 +1,7 @@
+{
+  "email": "pin@example.com",
+  "access_token": "REPLACE_WITH_REAL_ACCESS_TOKEN",
+  "device_id": "00000000-0000-0000-0000-000000000000",
+  "proxy": "http://127.0.0.1:7897",
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+}

@@ -4,6 +4,7 @@ set -euo pipefail
 
 LISTEN="${GATEWAY_LISTEN:-127.0.0.1:8013}"
 BASE="http://${LISTEN}"
+IMAGE_EXPECT="${IMAGE_SMOKE_EXPECT:-501}"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -21,6 +22,6 @@ code=$(curl -s -o /tmp/gws-img.json -w '%{http_code}' \
   -H 'Content-Type: application/json' \
   -d '{"prompt":"smoke","model":"gpt-image-2"}' \
   "$BASE/v1/images/generations")
-[[ "$code" == "501" ]] || fail "/v1/images/generations -> $code (want 501 deferred)"
+[[ "$code" == "$IMAGE_EXPECT" ]] || fail "/v1/images/generations -> $code (want $IMAGE_EXPECT)"
 
 echo "SMOKE_OK listen=$LISTEN"

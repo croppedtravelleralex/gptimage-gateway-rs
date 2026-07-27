@@ -789,6 +789,63 @@ mod auth_integration {
     }
 
     #[tokio::test]
+    async fn disabled_auth_me_returns_synthetic_user() {
+        let path = std::env::temp_dir().join(format!("gw-dis-{}.db", uuid::Uuid::new_v4()));
+        let cfg = AuthConfig {
+            db_path: path.to_string_lossy().into(),
+            jwt_secret: "integration-test-secret-32-bytes!!".into(),
+            jwt_ttl_secs: 3600,
+            cookie_name: "gws_session".into(),
+            cookie_secure: false,
+            allow_public_register: false,
+            mode: AuthMode::Disabled,
+            gateway_auth_key: None,
+            bootstrap_user: None,
+            bootstrap_password: None,
+        };
+        let auth = Arc::new(AuthService::open(cfg).unwrap());
+        let pin = PinAccount {
+            email: "test@example.com".into(),
+            access_token: String::new(),
+            device_id: None,
+            proxy: None,
+            user_agent: None,
+        };
+        let st = Arc::new(AppState {
+            helper: HelperClient::new("http://127.0.0.1:1").unwrap(),
+            pin: pin.clone(),
+            accounts: Arc::new(Mutex::new(HashMap::from([(pin.email.clone(), pin)]))),
+            listen: "127.0.0.1:0".into(),
+            min_image_quota: 1,
+            image_global_concurrency: 1,
+            image_sem: Arc::new(Semaphore::new(1)),
+            image_enabled: true,
+            auth,
+            static_dir: None,
+        });
+        let me_app = Router::new()
+            .route("/me", get(me))
+            .layer(middleware::from_fn_with_state(st.clone(), require_auth))
+            .with_state(st);
+        let me_resp = me_app
+            .oneshot(
+                Request::builder()
+                    .uri("/me")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(me_resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(me_resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["user"]["username"], "dev");
+        assert_eq!(v["user"]["role"], "admin");
+    }
+
+    #[tokio::test]
     async fn logout_revokes_jti_session() {
         let st = test_app_state();
         let claims = st

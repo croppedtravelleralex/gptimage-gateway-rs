@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import ShellLayout from "@/components/shell-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { api } from "@/lib/api";
+import { api, readChatStream } from "@/lib/api";
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
 
@@ -14,7 +14,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [stream, setStream] = useState(false);
+  const [stream, setStream] = useState(true);
 
   async function send() {
     const text = prompt.trim();
@@ -32,13 +32,14 @@ export default function ChatPage() {
       }));
       if (stream) {
         const res = await api.chat(apiMessages, true);
-        if (!(res instanceof Response) || !res.ok) {
-          const data = await (res as Response).json().catch(() => ({}));
-          throw new Error(data?.error?.message || "流式请求失败");
-        }
+        if (!(res instanceof Response)) throw new Error("unexpected response");
+        const content = await readChatStream(res);
         setMessages([
           ...nextMessages,
-          { role: "assistant", content: "（流式响应已发送，UI 展示待完善）" },
+          {
+            role: "assistant",
+            content: content || "（空响应）",
+          },
         ]);
         return;
       }
@@ -66,14 +67,14 @@ export default function ChatPage() {
                 checked={stream}
                 onChange={(e) => setStream(e.target.checked)}
               />
-              流式（实验）
+              流式 SSE
             </label>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div className="flex max-h-[360px] flex-col gap-3 overflow-y-auto rounded-md border border-border p-3">
               {messages.length === 0 && (
                 <p className="text-sm text-muted-foreground">
-                  发送一条消息开始对话。当前后端为简易文本桥接。
+                  发送一条消息开始对话。经 helper 桥接至 gptimage 数据面。
                 </p>
               )}
               {messages.map((m, i) => (

@@ -25,7 +25,25 @@ export interface HealthResponse {
   ok: boolean;
   helper_ok?: boolean;
   accounts?: number;
+  image_enabled?: boolean;
+  static_ui?: boolean;
+  auth_disabled?: boolean;
+  auth_mode?: string;
   image_global_concurrency?: number;
+}
+
+export interface AdminStatusResponse {
+  ok: boolean;
+  listen?: string;
+  pin_email?: string;
+  accounts?: string[];
+  image_global_concurrency?: number;
+  image_sem_available?: number;
+  min_image_quota?: number;
+  image_enabled?: boolean;
+  auth_disabled?: boolean;
+  auth_mode?: string;
+  static_ui?: boolean;
 }
 
 export interface CandidatesResponse {
@@ -67,6 +85,7 @@ export interface BackendCapabilities {
     image_generations?: boolean;
     image_edits?: boolean;
     estuary_download?: boolean;
+    static_ui?: boolean;
   };
   deferred?: string[];
   notes?: Record<string, string>;
