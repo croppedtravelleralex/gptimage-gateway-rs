@@ -74,11 +74,15 @@ export interface BackendCapabilities {
   ok: boolean;
   service?: string;
   wave?: string;
+  data_plane?: string;
   helper_ok?: boolean;
   features?: {
     auth?: boolean;
+    auth_mode?: string;
     chat?: boolean;
     chat_stream?: boolean;
+    stream_chat?: boolean;
+    poll_tasks?: boolean;
     models?: boolean;
     quota_probe?: boolean;
     account_candidates?: boolean;

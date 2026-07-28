@@ -55,12 +55,12 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <p className="mb-3 text-xs text-muted-foreground">
-              wave: {caps?.wave || "—"} · helper:{" "}
-              {caps?.helper_ok ? "ok" : "unknown"}
+              wave: {caps?.wave || "—"} · data_plane: {caps?.data_plane || "—"} · helper:{" "}
+              {caps?.helper_ok ? "ok" : "n/a"}
             </p>
             <FeatureRow name="鉴权" on={f?.auth} />
             <FeatureRow name="对话" on={f?.chat} />
-            <FeatureRow name="流式 SSE" on={f?.chat_stream} />
+            <FeatureRow name="流式 SSE" on={f?.chat_stream || f?.stream_chat} />
             <FeatureRow name="生图" on={f?.image_generations} />
             <FeatureRow name="图生图 edits" on={f?.image_edits} />
             <FeatureRow name="estuary 下载" on={f?.estuary_download} />

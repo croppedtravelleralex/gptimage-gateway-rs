@@ -27,7 +27,7 @@
 
 | 项 | 状态 |
 |----|------|
-| **总进度（本地可验收）** | **≈ 99%** — 见 [docs/23](docs/23-rewrite-progress.md) |
+| **总进度（本地可验收）** | **100%** — 见 [docs/23](docs/23-rewrite-progress.md) |
 | Rust gateway `:8013` | ✅ 本地 WSL 全栈（JWT + upstream 数据面） |
 | **`crates/upstream/` 数据面** | ✅ chat/image/stream + estuary |
 | Web UI `web/` | ✅ dashboard + `/chat` `/image` |
@@ -61,6 +61,8 @@ cd web && npm run build
 bash scripts/local_bringup_wsl.sh          # gateway + UI（默认 upstream，无 helper）
 bash scripts/local_smoke_upstream.sh       # chat + capabilities
 STREAM_ENABLED=1 bash scripts/local_smoke_upstream.sh  # + stream chat leg
+GATEWAY_LISTEN=127.0.0.1:8013 bash scripts/independent_acceptance.sh  # 独立验收
+# 浏览器验收看板: http://127.0.0.1:8013/showcase
 cargo run -p upstream-probe --release      # 需 secrets/pin_account.json（Panda 导号）
 ```
 

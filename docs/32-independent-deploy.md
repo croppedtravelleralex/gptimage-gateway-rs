@@ -21,7 +21,9 @@
 | 8 | 非流式对话 | `bash scripts/local_smoke_upstream.sh` 或手动 `POST /v1/chat/completions` |
 | 9 | 流式对话 | `POST /v1/chat/completions` + `"stream":true` → `text/event-stream` + `data: [DONE]` |
 | 10 | 生图 | `IMAGE_ENABLED=1` 时 `POST /v1/images/generations` 返回 b64 |
-| 11 | 脱敏 | `python scripts/check_runlog_desense.py` |
+| 11 | 验收脚本 | `bash scripts/independent_acceptance.sh`（默认 :8014） |
+| 12 | UI 看板 | 浏览器打开 `/showcase` — 状态 + 生图画廊 |
+| 13 | 脱敏 | `python scripts/check_runlog_desense.py` |
 
 本地默认端口 **8013**（`GATEWAY_LISTEN`）；独立部署默认 **8014**，避免与历史 MVP 或 `:8012` 混淆。
 
@@ -65,8 +67,11 @@ docker compose -f deploy/independent-compose.yml up -d
 ### 2.4 验收（独立端口，默认 8014）
 
 ```bash
+GATEWAY_LISTEN=127.0.0.1:8014 IMAGE_ENABLED=1 STREAM_ENABLED=1 \
+  bash scripts/independent_acceptance.sh
 curl -s localhost:8014/health | jq .
 curl -s localhost:8014/api/backend/capabilities | jq '.features'
+# 浏览器（需登录）：http://<host>:8014/showcase
 # 流式
 curl -N localhost:8014/v1/chat/completions \
   -H 'Content-Type: application/json' \

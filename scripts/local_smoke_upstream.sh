@@ -73,6 +73,9 @@ if [[ "$IMAGE_ENABLED" == "1" || "$IMAGE_ENABLED" == "true" ]]; then
     "$BASE/v1/images/generations")
   [[ "$code" == "200" || "$code" == "502" || "$code" == "504" ]] \
     || fail "/v1/images/generations -> $code"
+  if [[ "$code" == "200" ]]; then
+    grep -q 'b64_json' /tmp/gws-img.json || fail "image response missing b64_json"
+  fi
   echo "image leg: HTTP $code (timeout=${IMAGE_TIMEOUT}s)"
 fi
 

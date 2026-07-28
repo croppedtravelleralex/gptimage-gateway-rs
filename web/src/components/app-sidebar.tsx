@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   ImageIcon,
   LayoutDashboard,
+  LayoutGrid,
   MessageSquare,
   Settings,
   Users,
@@ -35,8 +36,9 @@ const memberLinks: Array<{
   icon: typeof MessageSquare;
   badge?: string;
 }> = [
+  { href: "/showcase", label: "验收看板", icon: LayoutGrid },
   { href: "/chat", label: "对话", icon: MessageSquare },
-  { href: "/image", label: "生图", icon: ImageIcon, badge: "后续" },
+  { href: "/image", label: "生图", icon: ImageIcon },
 ];
 
 export function AppSidebar() {

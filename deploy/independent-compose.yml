@@ -5,32 +5,27 @@
 #
 # Prep on host:
 #   1. mkdir -p /root/gptimage-gateway-rs/secrets
-#   2. place pin_account.json at secrets/pin_account.json (not in git)
-#   3. optional: secrets/gateway.env for JWT / auth overrides
+#   2. cp deploy/pin_account.json.example secrets/pin_account.json && edit token/proxy
+#   3. cp deploy/gateway.env.example secrets/gateway.env && set JWT + admin password
 #
 # Bring up:
 #   docker compose -f deploy/independent-compose.yml pull
 #   docker compose -f deploy/independent-compose.yml up -d
 #
+# Acceptance:
+#   GATEWAY_LISTEN=127.0.0.1:8014 IMAGE_ENABLED=1 bash scripts/independent_acceptance.sh
+#   Browser: http://<host>:8014/showcase
+#
 # Rollback:
 #   docker compose -f deploy/independent-compose.yml down
 #   (production :8012 remains untouched)
-#
-# Env contract:
-#   DATA_PLANE=upstream   — Rust data plane (no helper)
-#   IMAGE_ENABLED=1       — /v1/images/generations via upstream
-#   PIN_ACCOUNT_FILE      — mounted read-only from secrets/
 
 services:
   gateway:
     image: ghcr.io/croppedtravelleralex/gptimage-gateway-rs:latest
     network_mode: host
-    environment:
-      - DATA_PLANE=upstream
-      - IMAGE_ENABLED=1
-      - GATEWAY_LISTEN=0.0.0.0:8014
-      - PIN_ACCOUNT_FILE=/secrets/pin_account.json
-      - RUST_LOG=info
+    env_file:
+      - /root/gptimage-gateway-rs/secrets/gateway.env
     volumes:
       - /root/gptimage-gateway-rs/secrets/pin_account.json:/secrets/pin_account.json:ro
     restart: unless-stopped

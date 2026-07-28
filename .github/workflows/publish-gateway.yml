@@ -7,6 +7,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'crates/**'
+      - 'web/**'
       - 'Dockerfile.gateway'
       - '.github/workflows/publish-gateway.yml'
   workflow_dispatch:

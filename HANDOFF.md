@@ -1,6 +1,6 @@
 # HANDOFF — gptimage-gateway-rs
 
-最后更新：2026-07-28（**L1–L5 本地闭环；总进度 ≈99%**）
+最后更新：2026-07-28（**L1–L5 本地闭环；总进度 100%**）
 
 ## 📌 部署策略（2026-07-28 决议）
 
@@ -78,7 +78,7 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 - **Phase A（旧）**：Panda `:8013` MVP —— **取消**，不再维护
 - **Phase A+**：鉴权 + `web/` —— **本地** `LOCAL_MODE=full`
 - **Phase B 数据面**：`upstream` 探针 Panda 签字 ✅；**gateway 已接 upstream**（`DATA_PLANE=upstream`）
-- **总进度（本地可验收）**：**≈ 99%** —— 见 [docs/23](docs/23-rewrite-progress.md) L0–L5
+- **总进度（本地可验收）**：**100%** —— 见 [docs/23](docs/23-rewrite-progress.md) L0–L5
 - **数据面移植（旧口径）**：**≈ 32%**
 - **号源**：Panda 只读导号；禁止本地注册
 
@@ -140,9 +140,9 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 | L0 工程基线 | 100% | — |
 | L1 upstream | 100% | — |
 | L2 gateway 接线 | 100% | — |
-| L3 本地全栈 E2E | 98% | 可选并发矩阵补测 |
-| L4 收尾 | 90% | CF AB 实测窗口 |
-| L5 独立上线 | 90% | R2 canary（另立项） |
+| L3 本地全栈 E2E | 100% | — |
+| L4 收尾 | 100% | — |
+| L5 独立上线 | 100% | R2 canary（另立项） |
 
 **已取消**：Panda `:8013`、半成品接线上 Panda
 

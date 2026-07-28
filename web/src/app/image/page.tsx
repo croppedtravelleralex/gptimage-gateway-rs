@@ -50,7 +50,9 @@ export default function ImagePage() {
           <CardTitle>图像生成</CardTitle>
           <CardDescription>
             {enabled
-              ? "经 gateway → helper → gptimage 数据面执行（需有效 pin 账号 token）"
+              ? caps?.data_plane === "upstream"
+                ? "经 gateway → upstream Rust 数据面（PoW/SSE/estuary）"
+                : "经 gateway → helper 桥接（需有效 pin 账号 token）"
               : "后端未开启 IMAGE_ENABLED=1"}
           </CardDescription>
         </CardHeader>
