@@ -1,20 +1,119 @@
 # 23 — Rust 重写进度量化
 
-> **2026-07-28 里程碑**：`crates/upstream/`（~2,423 行）+ `upstream-probe` 在 Panda 实网跑通
-> Sentinel → 生图 prepare → SSE → `file_id`。**上游字节 0% 口径终结。**
-> 操作记录：[30-phase1-probe-panda.md](30-phase1-probe-panda.md)
+> **2026-07-28 策略**：**本地 WSL 完成实现 → 独立上线**；Panda `:8013` 已退役。
+> 探针里程碑见 [30-phase1-probe-panda.md](30-phase1-probe-panda.md)。
 
-## 结论速览（2026-07-28）
+## 结论速览 —— 本地优先口径（2026-07-28）
 
-| 口径 | 百分比 | 变化（vs 07-26） | 含义 |
-|------|--------|------------------|------|
-| **功能加权** | **≈ 32%** | +19pp | 单元 1/2/4/5/6 从 0–35% 升至 60–90% |
-| **代码体量（工作树）** | **≈ 19%** | +11pp | Rust 数据面 ~4,356 行 / Python 分母 23,256 |
-| **已进 git** | **≈ 15%** | +12pp | `upstream` + 全仓 push `main` |
-| **已部署可运行** | **≈ 8%** | +3pp | 探针一次性验证；gateway face 未替换 |
-| **上游字节数** | **已突破** | 0%→实网 | Panda `IMAGE_READY` 证明 Rust 直连 ChatGPT |
+**总进度（至「本地可独立验收」）≈ 42%**
 
-### 已完成的关键数据面单元
+分母 = 本仓独立产品可上线所需能力（不含替换生产 `:8012`、不含注册机、不含完整 admission 编排）。
+
+| 阶段 | 权重 | 完成度 | 贡献 | 状态 |
+|------|------|--------|------|------|
+| **L0** 工程基线 | 15% | **100%** | 15pp | ✅ CI/鉴权/Web/fixtures |
+| **L1** upstream 数据面 | 25% | **72%** | 18pp | 🔄 生图探针已签字 |
+| **L2** gateway 接线 | 20% | **0%** | 0pp | ☐ 未开工 |
+| **L3** 本地全栈 E2E | 25% | **36%** | 9pp | 🔄 bringup 有，未接 upstream |
+| **L4** 数据面收尾 | 10% | **15%** | 1.5pp | ☐ estuary/poll 等 |
+| **L5** 独立上线就绪 | 5% | **0%** | 0pp | ☐ 完整后再做 |
+| | **100%** | | **≈43.5%** | |
+
+> 旧口径「对照 Python 数据面 LOC 移植」仍约 **32%**（见 §历史基线），用于衡量**代码移植量**；
+> 上表用于衡量**本产品交付进度**。
+
+### L1 upstream 明细（72%）
+
+| 子项 | % | 说明 |
+|------|---|------|
+| TLS + wreq 客户端 | 80% | spike + `tls.rs` |
+| PoW / Turnstile / Sentinel | 90% | 单测 + 探针 `REQUIREMENTS_OK` |
+| 生图 prepare/start + image SSE | 85% | fixture + `IMAGE_READY` |
+| 文本 conversation + text SSE | 55% | body 已有；本地 `PROBE_STEPS=sse` 未跑 |
+| estuary 下载 | 15% | 仅头校验 |
+| upload 运行时 | 15% | 仅契约 |
+| poll / settle | 0% | 未开工 |
+
+### 非本路线范围（另计 / 永久后置）
+
+| 项 | 说明 |
+|----|------|
+| Panda `:8013` MVP | **已取消** |
+| 替换 `:8012` 生产 | 另立项 R2 |
+| admission / ACI 选号 | Phase C，本地 MVP 可后置 |
+| 异步队列 / 拟人调度 | 对接 `gptimage` 路径 A，非阻塞本地首版 |
+
+---
+
+## 分阶段任务规划（执行顺序）
+
+### L0 — 工程基线 ✅ 100%
+
+- [x] CI（fmt/clippy/test/desense）
+- [x] GHCR publish workflow
+- [x] JWT 鉴权 + Web UI + `local_bringup_wsl.sh`
+- [x] 协议 fixtures 8/8
+- [x] 停用 Panda `:8013`（`panda_bringup_rust_face.sh` 禁用）
+
+### L1 — upstream 数据面 🔄 72%
+
+| # | 任务 | 验收 |
+|---|------|------|
+| 1.1 | 本地文本 SSE 探针 | `PROBE_STEPS=requirements,sse` → `SSE_READY` |
+| 1.2 | estuary 下载实现 | 带 Bearer 拉取图片字节 |
+| 1.3 | upload（api vs resource）运行时 | 单测 + 探针步骤 |
+| 1.4 | poll/settle 最小闭环 | 生图后拿到可用 URL/文件 |
+
+### L2 — gateway 接线 ☐ 0%
+
+| # | 任务 | 验收 |
+|---|------|------|
+| 2.1 | `gateway` 依赖 `upstream` crate | Cargo + 配置项 |
+| 2.2 | `POST /v1/chat/completions` 走 upstream | 本地 smoke，不经过 helper |
+| 2.3 | `POST /v1/images/generations` 走 upstream | 本地 smoke 出图 |
+| 2.4 | helper 降级为可选/移除默认路径 | `IMAGE_ENABLED` 无 helper 也能跑 |
+
+### L3 — 本地全栈 E2E 🔄 36%
+
+| # | 任务 | 验收 |
+|---|------|------|
+| 3.1 | `local_smoke_full.sh` 全绿（upstream 模式） | 登录→对话→生图 |
+| 3.2 | Web UI `/chat` `/image` 走新路径 | 浏览器手动验收 |
+| 3.3 | 错误分类 / runlog 与契约一致 | 对照 `00-contract.md` |
+| 3.4 | 并发冒烟（≥3 并发生图） | 脚本或矩阵 |
+
+### L4 — 数据面收尾 ☐ 15%
+
+| # | 任务 | 验收 |
+|---|------|------|
+| 4.1 | edits 路由或明确 501 契约 | 文档 + 测试 |
+| 4.2 | CF 通过率 AB（B′ 判据 2） | `cf_pass_rate_ab.py` |
+| 4.3 | `wreq` 升正式版复测指纹 | doc 27 回归 |
+
+### L5 — 独立上线就绪 ☐ 0%（L1–L4 完成后）
+
+| # | 任务 | 验收 |
+|---|------|------|
+| 5.1 | 部署清单（compose/systemd，**新端口**） | 不动 `:8012` |
+| 5.2 | GHCR/制品拉取与 secrets 规范 | 运维文档 |
+| 5.3 | 灰度 + 回滚预案 | operator guide |
+| 5.4 | 首环境 canary | 独立实例验收 |
+
+---
+
+## 历史里程碑（2026-07-28 前）
+
+> **2026-07-28**：`crates/upstream/` Panda 探针 `IMAGE_READY`；随后 **:8013 退役**，转本地优先。
+
+## 旧口径 —— Python 数据面移植（≈32%）
+
+| 口径 | 百分比 | 含义 |
+|------|--------|------|
+| **功能加权（移植）** | **≈ 32%** | 对照 `gptimage-panda` 数据面模块 |
+| **代码体量** | **≈ 19%** | Rust ~4,356 行 / Python 23,256 |
+| **上游字节** | **已突破** | 探针实网验证 |
+
+### 已完成的关键数据面单元（移植视角）
 
 | 单元 | 完成度 | 证据 |
 |------|--------|------|
@@ -24,14 +123,14 @@
 | 生图 prepare/start body | **~85%** | fixture diff + Panda `IMAGE_PREPARE_OK` |
 | 文本 conversation body | **~65%** | `conversation.rs`；待 `PROBE_STEPS=sse` 实网签字 |
 
-### 剩余 ~68% 构成（按工作量）
+### 剩余（移植视角 ~68%）
 
 | 波次 | 占比 | 内容 |
 |------|------|------|
-| **接线** | ~15% | gateway 切 `upstream` 出站；helper 降级侧车 |
-| **收尾** | ~10% | estuary 下载、upload 运行时、poll/settle |
-| **编排** | ~23% | 异步队列、拟人调度、工作负载策略（单元 17–19） |
-| **号池** | ~20% | 选号 ACI、代理绑定、指纹（单元 10b/11/12） |
+| gateway 接线（本地） | ~15% | 见 L2 |
+| 收尾 | ~10% | estuary/upload/poll |
+| 编排 | ~23% | 队列/调度（可后置） |
+| 号池 | ~20% | 选号/代理（可后置） |
 
 ---
 

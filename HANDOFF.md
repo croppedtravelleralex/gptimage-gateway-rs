@@ -79,7 +79,8 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 - **Phase A（旧）**：Panda `:8013` MVP —— **取消**，不再维护
 - **Phase A+**：鉴权 + `web/` —— **本地** `LOCAL_MODE=full`
 - **Phase B 数据面**：`upstream` 探针 Panda 签字 ✅；**本地**接 gateway + 文本 SSE
-- **数据面重写**：功能加权 **≈32%** / 本地完成目标 **≈68% 剩余**
+- **总进度（本地可验收）**：**≈ 43%** —— 见 [docs/23](docs/23-rewrite-progress.md) L0–L5
+- **数据面移植（旧口径）**：**≈ 32%**
 - **号源**：Panda 只读导号；禁止本地注册
 
 ### 新增 crate（2026-07-28）
@@ -133,20 +134,18 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 4. ~~Phase B′ 判据 2 框架~~ ✅ `scripts/cf_pass_rate_ab.py` + [docs/29](docs/29-cf-pass-rate-ab-20260727.md)（实测需 CF 窗口 + `SPIKE_PROXY`）
 5. ~~**对齐 Panda 鉴权**~~ ✅ `AuthMode` + `GATEWAY_AUTH_KEY` + `PANDA_ALIGN=1` bringup（JWT/Web UI 仍为增强，见 [docs/28](docs/28-decisions-20260727.md) §1.4）
 
-**P2 —— 本地完成（当前波次）**
+**当前波次：L1 → L2**（见 [docs/23](docs/23-rewrite-progress.md)）
 
-| # | 事项 | 状态 |
-|---|------|------|
-| 1 | 本地全栈：`local_bringup_wsl.sh` + smoke | 持续 |
-| 2 | 本地 `upstream-probe`（文本 SSE + 生图） | 生图 ✅；文本待跑 |
-| 3 | gateway 接线 `upstream`（**仅本地**） | ☐ |
-| 4 | estuary / upload / poll/settle | ☐ |
-| 5 | 独立上线方案（新端口/新 compose，不动 `:8012`） | ☐ 完整后 |
+| 阶段 | 进度 | 下一步 |
+|------|------|--------|
+| L0 工程基线 | 100% | — |
+| L1 upstream | 72% | 本地文本 SSE 探针 |
+| L2 gateway 接线 | 0% | chat/image 改走 `upstream` |
+| L3 本地全栈 E2E | 36% | L2 完成后 smoke/UI |
+| L4 收尾 | 15% | estuary/poll |
+| L5 独立上线 | 0% | L1–L4 后 |
 
-**已取消**
-
-- ~~Panda `:8013` bringup / 迭代~~
-- ~~半成品阶段替换 Panda gateway~~
+**已取消**：Panda `:8013`、半成品接线上 Panda
 
 ## 本地命令（WSL 全栈）
 
