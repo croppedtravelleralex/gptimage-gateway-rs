@@ -1,10 +1,9 @@
 # gptimage-gateway-rs 施工总控 · Rust 重写路线
 
-最后更新：2026-07-27（P0 提交 + §6.3 六项决议闭合）  
-状态：**工程基线全绿**（build / test 56 / fmt / clippy -D warnings / desense 五道门禁）；
-代码**已改未提交、未部署**；Phase B 契约仍不成立。  
-数据面重写：功能加权 **≈12.8%** / 工作树体量 8.3% / 已进 git 2.9% / **上游字节 0%**，见 [docs/23](docs/23-rewrite-progress.md)。  
-✅ **Phase B′ 判据 1 通过** —— `wreq` 实测复现 curl_cffi 指纹，见 [docs/27](docs/27-tls-fingerprint-spike-20260726.md)。硬阻塞从「技术未知」降为「工作量」。  
+最后更新：2026-07-28（**upstream Panda 实网验证**）  
+状态：**数据面关键链路已通**（PoW/Turnstile/SSE/生图 `file_id`）；gateway 仍经 helper 出站。  
+数据面重写：功能加权 **≈32%** / 工作树体量 **≈19%** / **上游字节已突破 0%**，见 [docs/23](docs/23-rewrite-progress.md)。  
+✅ **Phase B′ 判据 1** + **生图探针 Panda 签字** —— 见 [docs/30](docs/30-phase1-probe-panda.md)、[docs/27](docs/27-tls-fingerprint-spike-20260726.md)。  
 ⚠️ **存在两条互不知晓的 Rust 化路径**，见 §1.0′。  
 ⚠️ **本仓 2,707 行中只有 943 行进了 git**；且生产上跑着 598 行未入库 Rust，见 §1.0″。  
 ⚠️ **当前架构下性能开销下降仍 = 0%**，见 [docs/26](docs/26-perf-measured-20260726.md)。  

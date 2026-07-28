@@ -1,6 +1,25 @@
-# Phase 1 — Panda 文本链路探针验证
+# Phase 1/2 — Panda 探针验证（文本 + 生图）
 
 最后更新：2026-07-28
+
+## 已验证结果（2026-07-28 Panda 实网）
+
+账号来源：Panda 号池导号（`verified_ready` + 绑定代理）。探针：`PROBE_STEPS=requirements,image`。
+
+```
+REQUIREMENTS_OK token_len=3000 proof_len=651 turnstile_len=2392
+IMAGE_PREPARE_OK conduit_len=351
+IMAGE_READY conversation_id=6a68726d-... file_ids=file_00000000f99c81f5... events=8 elapsed≈40s
+```
+
+| 判据 | 状态 |
+|------|------|
+| Sentinel 开票链 | ✅ |
+| 生图 prepare/start body | ✅ |
+| SSE → `file_id` / `sediment_id` | ✅ |
+| 文本 SSE（`PROBE_STEPS=sse`） | ⏳ 待补跑 |
+
+> GHCR 镜像已 publish；Panda `docker pull` 需配置 `ghcr.io` 登录。探针亦可经 WSL 编译二进制 pipe 至 Panda `/tmp/upstream-probe`（一次性诊断，非 gateway 部署）。
 
 ## 目标（第一期判据）
 

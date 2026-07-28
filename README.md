@@ -21,16 +21,19 @@
 | [docs/17-operator-guide.md](docs/17-operator-guide.md) | 运维 / bringup |
 | [docs/18-test-matrix.md](docs/18-test-matrix.md) | 验收矩阵 |
 
-## 当前状态（2026-07-23）
+最后更新：2026-07-28
+
+## 当前状态（2026-07-23 表需对照 HANDOFF 更新）
 
 | 项 | 状态 |
 |----|------|
-| Rust face `:8013` | ✅ 鉴权 + 对话 + 管理 API |
-| Web UI `web/` | ✅ dashboard；`npm run build` → `web/out` |
-| Helper `:19001` | ✅ 文本/SSE 桥接 |
+| Rust face `:8013` | ✅ 鉴权 + 对话 + 管理 API（panda 仍跑旧 MVP） |
+| **`crates/upstream/` 数据面** | ✅ **Panda 生图探针签字** |
+| Web UI `web/` | ✅ dashboard |
+| Helper `:19001` | ✅ 文本/SSE 桥接（gateway 出站仍依赖） |
 | Phase B fixtures | ✅ 全量 golden 差分 |
-| 生图运行时 | ⏸️ 默认关（`IMAGE_ENABLED=0`） |
-| MVP 生图矩阵签字 | ⏳ 待后端接入 + CF 可测窗 |
+| 生图运行时（gateway 接线） | ⏳ upstream 已通，face 未切 |
+| GHCR + upstream-probe | ✅ publish workflow；Panda pull 待授权 |
 | 生产切流 | ❌ 公网仍 `:8012` |
 
 ## 路线摘要

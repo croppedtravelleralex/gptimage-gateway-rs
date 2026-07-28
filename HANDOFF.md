@@ -1,30 +1,42 @@
 # HANDOFF — gptimage-gateway-rs
 
-最后更新：2026-07-27（P0 已提交 + §6.3 六项决议闭合）
+最后更新：2026-07-28（**数据面关键链路 Panda 实网验证通过**）
 
-## ✅ 编译与门禁：全绿（本项目首次）
+## ✅ 编译与门禁：全绿
 
 ```bash
 cargo build --workspace        # ✅
-cargo test --workspace         # ✅ 56 passed
+cargo test --workspace         # ✅（含 upstream 11 + workspace 合计）
 cargo fmt --all -- --check     # ✅
-cargo clippy -- -D warnings    # ✅ 0 warning
-python scripts/check_runlog_desense.py  # ✅ DESENSE_OK（清理前实测 14 处命中）
+cargo clippy -- -D warnings    # ✅
+python scripts/check_runlog_desense.py  # ✅
 ```
 
-CI 已建：`.github/workflows/ci.yml`（rust / desense / web 三 job）。
-**之前编译失败和 CORS panic 能长期活在 develop，就是因为没有闸门。**
+CI：`.github/workflows/ci.yml` + **GHCR** `.github/workflows/publish-gateway.yml`（`main` push → `ghcr.io/croppedtravelleralex/gptimage-gateway-rs`）。
 
-## ⚠️ 但这些改动一行都还没上生产
+## 🎯 里程碑：Rust 数据面首次 Panda 实网出图
+
+**2026-07-28** 在 Panda 用 `upstream-probe`（号池导号 + 绑定代理）跑通：
+
+| 步骤 | 结果 |
+|------|------|
+| Sentinel 开票（PoW + Turnstile + finalize） | ✅ `REQUIREMENTS_OK` |
+| 生图 prepare | ✅ `IMAGE_PREPARE_OK` |
+| 生图 SSE → `file_id` | ✅ `IMAGE_READY`（~40s，8 events） |
+
+详情与命令：[docs/30-phase1-probe-panda.md](docs/30-phase1-probe-panda.md)。
+
+**意义**：`crates/upstream/` 已直接向 ChatGPT 上游发字节 —— **「上游字节 0%」口径终结**。gateway 主路径仍经 helper，但数据面 Rust 库已可独立验证。
+
+## ⚠️ 部署与供应链（未完全闭合）
 
 | 事实 | 状态 |
 |------|------|
-| 代码改完并通过全部门禁 | ✅ |
-| 已 commit | ✅ 2026-07-27（见 `git log`） |
-| 已部署到 panda | ❌ panda 跑的仍是 2026-07-21 的 943 行旧二进制 |
-| 数据面重写进度 | **未变** —— 仍是上游字节 0% |
-
-本轮修的是**工程基线与安全**，不是数据面。不要把「已修」读成「已上线」。
+| 代码已 push `main` / `develop` | ✅ `bf1895e` |
+| GHCR 镜像构建 | ✅ 至少一次 publish 成功 |
+| Panda `docker pull` GHCR | ❌ **unauthorized**（需 PAT 登录或包公开） |
+| gateway 二进制替换 `:8013` | ❌ 仍跑旧 MVP；探针为一次性 `/tmp/upstream-probe` |
+| 路径 A 未入库 Rust 在生产跑 | ⚠️ 未解决（见 §供应链缺口） |
 
 ## 🎯 Phase B′ 判据 1 通过 —— 硬阻塞降级
 
@@ -53,13 +65,20 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 
 ## 当前状态
 
-- **Phase A**：Panda `Rust :8013` + `helper :19001`；跑的是 commit `7c34159` 的 943 行 MVP
-- **Phase A+**：鉴权 + `web/` **本地全栈可跑**（`LOCAL_MODE=full`）；panda 仍未部署
-- **Phase B 契约**：**本地已对齐** —— `capture_protocol_fixtures.py` + `spa_tool_path=true`（Panda 默认）+ fixture diff 8/8 绿
-- **Phase B′**：**判据 1 通过**（TLS 指纹等价），判据 2/3/4 未测
-- **端点覆盖**：生产态 **7 / 129**（本地工作树 16，新增 `/api/admin/status`）
-- **数据面重写**：功能加权 12.8% / 工作树体量 8.3% / 已进 git 2.9% / **上游字节 0%**
-- **性能收益**：**当前架构下仍为 0%**（Rust 出站零个指向 ChatGPT）
+- **Phase A**：Panda `Rust :8013` + `helper :19001`；face 仍为旧 MVP 二进制
+- **Phase A+**：鉴权 + `web/` 本地全栈可跑；panda 未部署
+- **Phase B 契约**：fixture diff 8/8 绿；`upstream` 生图 body 对齐 fixture
+- **Phase B′**：判据 1（TLS 指纹）✅；判据 2（CF 通过率）未测
+- **Phase B 数据面探针**：**生图链路 Panda 实网 ✅**（见 doc 30）；文本 SSE 探针待补跑
+- **数据面重写**：功能加权 **≈32%** / 工作树体量 **≈19%** / **上游字节已突破 0%**
+- **号源**：仅 Panda 导号（`export_pin_account.py`）；禁止本地注册/手工 token
+
+### 新增 crate（2026-07-28）
+
+| crate | LOC | 职责 |
+|-------|-----|------|
+| `crates/upstream/` | ~2,423 | wreq TLS、PoW、Turnstile VM、Sentinel、SSE、生图 prepare/start |
+| `crates/upstream-probe/` | ~279 | 分步探针（tls/bootstrap/requirements/sse/image） |
 
 ### ⚠️ 供应链缺口（未解决）
 
@@ -105,13 +124,23 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 4. ~~Phase B′ 判据 2 框架~~ ✅ `scripts/cf_pass_rate_ab.py` + [docs/29](docs/29-cf-pass-rate-ab-20260727.md)（实测需 CF 窗口 + `SPIKE_PROXY`）
 5. ~~**对齐 Panda 鉴权**~~ ✅ `AuthMode` + `GATEWAY_AUTH_KEY` + `PANDA_ALIGN=1` bringup（JWT/Web UI 仍为增强，见 [docs/28](docs/28-decisions-20260727.md) §1.4）
 
-**P2**
+**P2 —— 数据面接线（当前波次）**
 
-5. Phase C：admission 进编排面 —— **先做双轨决策**
-6. （跨仓）路径 A 的 598 行未入库代码补提交；`libimage_schedule_core.so` 恢复溯源
-7. `wreq` 从 `-rc` 升正式版后复测指纹
+| # | 事项 | 状态 |
+|---|------|------|
+| 1 | `upstream` crate：PoW/Turnstile/SSE/生图 | ✅ Panda 探针验证 |
+| 2 | GHCR 镜像 + `upstream-probe` | ✅ workflow 已建；Panda pull 待授权 |
+| 3 | 文本 SSE 探针（`PROBE_STEPS=requirements,sse`） | ⏳ 待 Panda 补跑 |
+| 4 | gateway 切 Rust 数据面（替换 helper 出站） | ☐ 未开工 |
+| 5 | estuary 下载 / upload 运行时 | ☐ 仅契约层 |
+| 6 | poll/settle + 号池选号/admission | ☐ Phase C |
+| 7 | Panda GHCR `docker login` | ☐ 运维 |
 
-**待决策（6 项）** —— ✅ 已全部闭合，见 [docs/28-decisions-20260727.md](docs/28-decisions-20260727.md)（以 Panda 现网为准）。
+**P3（后续）**
+
+- Phase C：admission 进编排面
+- 路径 A 598 行未入库代码补提交
+- `wreq` 升正式版后复测指纹
 
 ## 本地命令（WSL 全栈）
 

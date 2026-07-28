@@ -1,4 +1,41 @@
-# 23 — Rust 重写进度量化（2026-07-26）
+# 23 — Rust 重写进度量化
+
+> **2026-07-28 里程碑**：`crates/upstream/`（~2,423 行）+ `upstream-probe` 在 Panda 实网跑通
+> Sentinel → 生图 prepare → SSE → `file_id`。**上游字节 0% 口径终结。**
+> 操作记录：[30-phase1-probe-panda.md](30-phase1-probe-panda.md)
+
+## 结论速览（2026-07-28）
+
+| 口径 | 百分比 | 变化（vs 07-26） | 含义 |
+|------|--------|------------------|------|
+| **功能加权** | **≈ 32%** | +19pp | 单元 1/2/4/5/6 从 0–35% 升至 60–90% |
+| **代码体量（工作树）** | **≈ 19%** | +11pp | Rust 数据面 ~4,356 行 / Python 分母 23,256 |
+| **已进 git** | **≈ 15%** | +12pp | `upstream` + 全仓 push `main` |
+| **已部署可运行** | **≈ 8%** | +3pp | 探针一次性验证；gateway face 未替换 |
+| **上游字节数** | **已突破** | 0%→实网 | Panda `IMAGE_READY` 证明 Rust 直连 ChatGPT |
+
+### 已完成的关键数据面单元
+
+| 单元 | 完成度 | 证据 |
+|------|--------|------|
+| TLS 指纹（wreq） | **~65%** | spike doc 27 + `upstream/tls.rs` 接线 |
+| PoW / Turnstile / Sentinel | **~90%** | `cargo test -p upstream` 11 passed；Panda `REQUIREMENTS_OK` |
+| SSE 解析 + image ready | **~75%** | Panda `IMAGE_READY` + `file_ids`；文本 delta 探针待补 |
+| 生图 prepare/start body | **~85%** | fixture diff + Panda `IMAGE_PREPARE_OK` |
+| 文本 conversation body | **~65%** | `conversation.rs`；待 `PROBE_STEPS=sse` 实网签字 |
+
+### 剩余 ~68% 构成（按工作量）
+
+| 波次 | 占比 | 内容 |
+|------|------|------|
+| **接线** | ~15% | gateway 切 `upstream` 出站；helper 降级侧车 |
+| **收尾** | ~10% | estuary 下载、upload 运行时、poll/settle |
+| **编排** | ~23% | 异步队列、拟人调度、工作负载策略（单元 17–19） |
+| **号池** | ~20% | 选号 ACI、代理绑定、指纹（单元 10b/11/12） |
+
+---
+
+## 历史基线（2026-07-26 审计）
 
 口径基准：`plan.md` §0「重写 ChatGPT 逆向**数据面**」。
 分母 = **`../gptimage-panda`**（2026-07-26 从生产机 `:8012` 拉取的快照）中数据面相关模块，**已剔除** plan.md 声明的永久非目标（注册机、维护环、Outlook OTP、Panda sync UI、risk/backup/sub2api/nurture、异步图片任务队列 UI）。
@@ -33,9 +70,9 @@
 
 ---
 
-## 1. 结论（六个口径）
+## 1. 结论（六个口径）—— 2026-07-26 基线，已被 § 结论速览 取代
 
-> 2026-07-26 晚补入两个口径（**已进 git**、**已部署**），来自 panda 现采实测，见 [25](25-panda-vs-rust-20260726.md)。
+> 下列百分比为 **07-26 审计时点**；当前请以文首 **结论速览** 为准。
 
 | 口径 | 百分比 | 分子 | 含义 |
 |------|--------|------|------|
@@ -121,12 +158,23 @@
 | `image_schedule_core/dispatch_gate.rs` | 12 | `schedule_core.py:70-91` | 算术桩 |
 | **小计** | **1,107** | | 编译为 `native/*.so`，2026-07-25 上生产 |
 
-**路径 B —— `gptimage-gateway-rs/crates/`**
+**路径 B —— `gptimage-gateway-rs/crates/`（2026-07-28 增补）**
+
+| Rust 模块 | LOC | 是否数据面 |
+|----------|-----|-----------|
+| `upstream/`（tls/pow/turnstile/sentinel/requirements/sse/conversation） | ~2,423 | **是 —— 已 Panda 实网验证** |
+| `upstream-probe/` | ~279 | 探针（非移植） |
+| `protocol/` + `ticket_pool/` + `control_client/` | ~826 | 见下表（07-26 口径） |
+
+**路径 B 数据面（07-28）** = 2,423 + 826 ≈ **3,249**（探针不计入移植分母）  
+**总分子（07-28）** = 1,107（A）+ 3,249（B）≈ **4,356** → 体量 **≈18.7%**
+
+**路径 B 明细（07-26 基线 + 07-28 upstream）**
 
 | Rust 文件 | LOC | 是否数据面移植 |
 |----------|-----|--------------|
-| `protocol/src/image_contract.rs` | 202 | 是 —— 但**生产路径死代码**，只被 tests 调用；17 处字段差异 |
-| `protocol/src/lib.rs` | 158 | 是 —— OpenAI DTO，已接线 |
+| `upstream/src/*.rs` | ~2,423 | **是 —— Panda 实网已验证** |
+| `protocol/src/image_contract.rs` | 202 | 是 —— fixture 层；运行时由 `upstream/conversation.rs` 承接 |
 | `protocol/src/error_class.rs` | 74 | 是 —— 已接线 |
 | `ticket_pool/src/lib.rs` | 285 | 是 —— 编译失败 + 孤儿；与路径 A 的 `pre_ticket_pool` 重叠 80% |
 | `control_client/src/lib.rs` | 107 | 部分 —— 孤儿；目标端点在生产侧**不存在** |
@@ -260,10 +308,7 @@ find services/protocol services/image_pipeline -name '*.py' | xargs wc -l | tail
 cd ../gptimage-gateway-rs
 find crates -name '*.rs' | xargs wc -l
 
-# 验证「上游字节数 0」：Rust 侧的所有 HTTP 目标
-grep -rn 'reqwest::Client\|\.get(\|\.post(' crates/ --include=*.rs | grep -v test
-```
-
-最后一条的全部出站目标应只有 `HELPER_URL`（`http://127.0.0.1:19001`）与 `control_client` 的 base_url，无任何 ChatGPT 端点。
-
-唯一的 `chatgpt.com` 字面量在 [`image_contract.rs:51`](../crates/protocol/src/image_contract.rs)，是请求体里的 `"app_name"` 字段值，不是 HTTP 目标 —— 且该文件是生产路径死代码。若出现真正的上游端点，说明边界已变动，本文需重算。
+# 验证「上游字节数」：Rust 侧出站目标（2026-07-28 更新）
+grep -rn 'chatgpt\.com\|backend-api' crates/upstream --include='*.rs' | head
+# 应出现 requirements/sentinel/conversation 等真实上游 URL。
+# gateway 主路径仍只打 HELPER_URL；数据面突破在 upstream crate + probe。
