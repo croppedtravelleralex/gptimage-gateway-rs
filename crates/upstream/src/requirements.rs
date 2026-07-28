@@ -12,7 +12,9 @@ use crate::account::PinAccount;
 use crate::conversation::{
     build_image_prepare_body, build_image_start_body, image_model_slug, DEFAULT_TIMEZONE,
 };
-use crate::pow::{build_legacy_requirements_token, build_proof_token, parse_pow_resources, DEFAULT_POW_SCRIPT};
+use crate::pow::{
+    build_legacy_requirements_token, build_proof_token, parse_pow_resources, DEFAULT_POW_SCRIPT,
+};
 use crate::sentinel::{
     build_image_start_headers, PURE_HTTP_IMAGE_CLIENT_BUILD_NUMBER, PURE_HTTP_IMAGE_CLIENT_VERSION,
 };
@@ -115,7 +117,11 @@ impl RequirementsClient {
             ("Cache-Control".into(), "no-cache".into()),
             ("Pragma".into(), "no-cache".into()),
             ("Priority".into(), "u=1, i".into()),
-            ("Sec-Ch-Ua".into(), "\"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\", \"Not-A.Brand\";v=\"99\"".into()),
+            (
+                "Sec-Ch-Ua".into(),
+                "\"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\", \"Not-A.Brand\";v=\"99\""
+                    .into(),
+            ),
             ("Sec-Ch-Ua-Mobile".into(), "?0".into()),
             ("Sec-Ch-Ua-Platform".into(), "\"Windows\"".into()),
             ("Sec-Fetch-Dest".into(), "empty".into()),
@@ -129,7 +135,10 @@ impl RequirementsClient {
                 "OAI-Client-Build-Number".into(),
                 DEFAULT_CLIENT_BUILD_NUMBER.into(),
             ),
-            ("Authorization".into(), format!("Bearer {}", self.account.access_token)),
+            (
+                "Authorization".into(),
+                format!("Bearer {}", self.account.access_token),
+            ),
             ("X-OpenAI-Target-Path".into(), path.into()),
             ("X-OpenAI-Target-Route".into(), path.into()),
         ]
@@ -199,12 +208,8 @@ impl RequirementsClient {
         let ua = self.user_agent().to_string();
         let scripts = self.pow_script_sources.clone();
         let data_build = self.pow_data_build.clone();
-        let p_token = build_legacy_requirements_token(
-            &ua,
-            Some(&scripts),
-            &data_build,
-            &mut self.rng,
-        );
+        let p_token =
+            build_legacy_requirements_token(&ua, Some(&scripts), &data_build, &mut self.rng);
 
         let prepare_path = format!("{base}/prepare");
         let mut hdrs = self.api_headers(&prepare_path);
@@ -223,12 +228,20 @@ impl RequirementsClient {
         let prepare_status = prepare_resp.status();
         let prepare_body = prepare_resp.text().await?;
         if !prepare_status.is_success() {
-            bail!("chat_requirements_prepare HTTP {prepare_status}: {}", &prepare_body[..prepare_body.len().min(240)]);
+            bail!(
+                "chat_requirements_prepare HTTP {prepare_status}: {}",
+                &prepare_body[..prepare_body.len().min(240)]
+            );
         }
-        let prepare_data: PrepareResponse = serde_json::from_str(&prepare_body)
-            .context("parse chat_requirements prepare")?;
+        let prepare_data: PrepareResponse =
+            serde_json::from_str(&prepare_body).context("parse chat_requirements prepare")?;
 
-        if prepare_data.arkose.as_ref().and_then(|a| a.required).unwrap_or(false) {
+        if prepare_data
+            .arkose
+            .as_ref()
+            .and_then(|a| a.required)
+            .unwrap_or(false)
+        {
             bail!("chat requirements requires arkose token, which is not implemented");
         }
 
@@ -257,7 +270,11 @@ impl RequirementsClient {
             .and_then(|t| t.required)
             .unwrap_or(false);
         if turnstile_required {
-            if let Some(dx) = prepare_data.turnstile.as_ref().and_then(|t| t.dx.as_deref()) {
+            if let Some(dx) = prepare_data
+                .turnstile
+                .as_ref()
+                .and_then(|t| t.dx.as_deref())
+            {
                 turnstile_token = solve_turnstile_token(dx, &p_token).unwrap_or_default();
             }
             if turnstile_token.is_empty() {
@@ -300,8 +317,8 @@ impl RequirementsClient {
                 &finalize_text[..finalize_text.len().min(240)]
             );
         }
-        let finalize_data: FinalizeResponse = serde_json::from_str(&finalize_text)
-            .context("parse chat_requirements finalize")?;
+        let finalize_data: FinalizeResponse =
+            serde_json::from_str(&finalize_text).context("parse chat_requirements finalize")?;
         let token = finalize_data.token.unwrap_or_default();
         if token.is_empty() {
             bail!("missing auth chat requirements token: {finalize_text}");
@@ -391,9 +408,7 @@ impl RequirementsClient {
         let headers = self.image_spa_headers(path, "*/*", None, "", true);
         let body_str = serde_json::to_string(&body)?;
         let resp = Self::apply_headers(
-            self.client
-                .post(format!("{BASE_URL}{path}"))
-                .body(body_str),
+            self.client.post(format!("{BASE_URL}{path}")).body(body_str),
             &headers,
         )
         .send()
@@ -427,12 +442,11 @@ impl RequirementsClient {
         let path = "/backend-api/f/conversation";
         let slug = image_model_slug(model);
         let body = build_image_start_body(prompt, slug, DEFAULT_TIMEZONE, &[], true);
-        let headers = self.image_spa_headers(path, "text/event-stream", Some(requirements), "", false);
+        let headers =
+            self.image_spa_headers(path, "text/event-stream", Some(requirements), "", false);
         let body_str = serde_json::to_string(&body)?;
         let resp = Self::apply_headers(
-            self.client
-                .post(format!("{BASE_URL}{path}"))
-                .body(body_str),
+            self.client.post(format!("{BASE_URL}{path}")).body(body_str),
             &headers,
         )
         .send()

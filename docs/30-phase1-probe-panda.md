@@ -22,7 +22,7 @@
 # 在 panda 上；ACCOUNTS_DB 默认 chatgpt2api-local 容器内 /app/data/accounts.db
 mkdir -p /root/gptimage-gateway-rs/secrets
 ACCOUNTS_DB=/app/data/accounts.db \
-PIN_EMAIL='your@email.com' \
+PIN_EMAIL='<pin-email>' \
 OUT_PATH=/root/gptimage-gateway-rs/secrets/pin_account.json \
   docker exec -i chatgpt2api-local python3 - < /root/gptimage-gateway-rs/scripts/export_pin_account.py
 ```

@@ -55,8 +55,7 @@ fn image_prepare_matches_python_golden() {
 fn image_start_matches_python_golden() {
     let mut opts = fixture_opts();
     opts.fixed_message_id = Some("00000000-0000-4000-8000-000000000003".into());
-    let built =
-        build_image_start_body_opts("a red cube on white background", "gpt-image-2", &opts);
+    let built = build_image_start_body_opts("a red cube on white background", "gpt-image-2", &opts);
     let golden = load_json("image_start_body.json");
     assert_json_matches_except(&built, &golden, VOLATILE);
 }

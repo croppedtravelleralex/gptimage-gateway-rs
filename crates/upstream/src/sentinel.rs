@@ -2,8 +2,7 @@ use uuid::Uuid;
 
 use crate::requirements::ChatRequirements;
 
-pub const PURE_HTTP_IMAGE_CLIENT_VERSION: &str =
-    "prod-a194cd50d4416d3c0b47c740f206b12ce60f5887";
+pub const PURE_HTTP_IMAGE_CLIENT_VERSION: &str = "prod-a194cd50d4416d3c0b47c740f206b12ce60f5887";
 pub const PURE_HTTP_IMAGE_CLIENT_BUILD_NUMBER: &str = "6708908";
 
 /// Sentinel headers from `services/protocol/chatgpt_web_request.py::build_sentinel_headers`.

@@ -132,10 +132,7 @@ pub async fn logout(
 }
 
 pub async fn me(State(st): State<Arc<AppState>>, user: AuthUser) -> impl IntoResponse {
-    if matches!(
-        st.auth.config().mode,
-        AuthMode::Disabled | AuthMode::ApiKey
-    ) {
+    if matches!(st.auth.config().mode, AuthMode::Disabled | AuthMode::ApiKey) {
         return Json(json!({
             "ok": true,
             "user": user_public_from_claims(&user.claims),

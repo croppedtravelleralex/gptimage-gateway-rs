@@ -5,13 +5,12 @@ mod image_contract;
 
 pub use error_class::{classify_fault, ErrorClass};
 pub use image_contract::{
-    assert_json_matches_except, build_estuary_download_headers, build_image_prepare_body,
-    build_image_prepare_body_opts, build_image_start_body, build_image_start_body_opts,
-    build_image_start_body_with_refs, build_image_start_body_with_refs_opts,
-    build_client_contextual_info, build_prepare_contextual_info, build_pure_http_image_contextual_info,
-    picture_v2_prompt,
-    validate_estuary_headers, validate_resource_put_headers, ContractOptions, ImageEditRequest,
-    ImageRef,
+    assert_json_matches_except, build_client_contextual_info, build_estuary_download_headers,
+    build_image_prepare_body, build_image_prepare_body_opts, build_image_start_body,
+    build_image_start_body_opts, build_image_start_body_with_refs,
+    build_image_start_body_with_refs_opts, build_prepare_contextual_info,
+    build_pure_http_image_contextual_info, picture_v2_prompt, validate_estuary_headers,
+    validate_resource_put_headers, ContractOptions, ImageEditRequest, ImageRef,
 };
 
 use serde::{Deserialize, Serialize};

@@ -285,7 +285,11 @@ pub fn build_image_start_body_with_refs_opts(
         json!({ "content_type": "multimodal_text", "parts": parts })
     };
 
-    let top_hints = if spa { json!([]) } else { json!(["picture_v2"]) };
+    let top_hints = if spa {
+        json!([])
+    } else {
+        json!(["picture_v2"])
+    };
     let contextual = if spa {
         build_pure_http_image_contextual_info()
     } else {
@@ -409,11 +413,7 @@ fn current_unix_time() -> f64 {
 }
 
 /// Deep-compare JSON for fixture tests; `volatile_paths` are skipped (dot paths).
-pub fn assert_json_matches_except(
-    built: &Value,
-    golden: &Value,
-    volatile_paths: &[&str],
-) {
+pub fn assert_json_matches_except(built: &Value, golden: &Value, volatile_paths: &[&str]) {
     fn walk(path: &str, built: &Value, golden: &Value, volatile: &[&str]) {
         if volatile.iter().any(|v| *v == path) {
             return;

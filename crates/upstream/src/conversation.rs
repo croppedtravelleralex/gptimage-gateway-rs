@@ -47,7 +47,9 @@ fn picture_v2_prompt(prompt: &str) -> (String, Vec<Value>) {
     let mention = "@Create image";
     let mut raw = prompt.trim().to_string();
     if raw.starts_with(mention) {
-        raw = raw[mention.len()..].trim_start_matches([' ', '\u{00a0}']).to_string();
+        raw = raw[mention.len()..]
+            .trim_start_matches([' ', '\u{00a0}'])
+            .to_string();
     }
     let text = if raw.is_empty() {
         mention.to_string()
@@ -64,14 +66,27 @@ fn picture_v2_prompt(prompt: &str) -> (String, Vec<Value>) {
 }
 
 /// SPA `/f/conversation/prepare` body (`build_image_prepare_body`, spa_tool_path=true).
-pub fn build_image_prepare_body(prompt: &str, model_slug: &str, timezone: &str, spa_tool_path: bool) -> Value {
-    let tz = if timezone.is_empty() { DEFAULT_TIMEZONE } else { timezone };
+pub fn build_image_prepare_body(
+    prompt: &str,
+    model_slug: &str,
+    timezone: &str,
+    spa_tool_path: bool,
+) -> Value {
+    let tz = if timezone.is_empty() {
+        DEFAULT_TIMEZONE
+    } else {
+        timezone
+    };
     let partial_text = if spa_tool_path {
         prompt
     } else {
         "Create image"
     };
-    let hints: Vec<&str> = if spa_tool_path { vec![] } else { vec!["picture_v2"] };
+    let hints: Vec<&str> = if spa_tool_path {
+        vec![]
+    } else {
+        vec!["picture_v2"]
+    };
     json!({
         "action": "next",
         "parent_message_id": "client-created-root",
@@ -116,8 +131,16 @@ pub fn build_image_start_body(
     references: &[ImageReference],
     spa_tool_path: bool,
 ) -> Value {
-    let tz = if timezone.is_empty() { DEFAULT_TIMEZONE } else { timezone };
-    let hints: Vec<&str> = if spa_tool_path { vec![] } else { vec!["picture_v2"] };
+    let tz = if timezone.is_empty() {
+        DEFAULT_TIMEZONE
+    } else {
+        timezone
+    };
+    let hints: Vec<&str> = if spa_tool_path {
+        vec![]
+    } else {
+        vec!["picture_v2"]
+    };
     let (prompt_part, custom_symbol_offsets) = if spa_tool_path {
         (prompt.to_string(), Vec::<Value>::new())
     } else {
@@ -154,7 +177,10 @@ pub fn build_image_start_body(
             "system_hints": hints,
             "serialization_metadata": {"custom_symbol_offsets": custom_symbol_offsets},
         });
-        user_message.insert("create_time".into(), json!(chrono::Utc::now().timestamp_millis() as f64 / 1000.0));
+        user_message.insert(
+            "create_time".into(),
+            json!(chrono::Utc::now().timestamp_millis() as f64 / 1000.0),
+        );
         user_message.insert("metadata".into(), metadata);
     }
 
@@ -194,7 +220,11 @@ pub fn build_image_start_body(
 
 /// Minimal text conversation body (`chatgpt_web_request.py::build_chat_body`).
 pub fn build_text_chat_body(prompt: &str, model: &str, timezone: &str) -> Value {
-    let tz = if timezone.is_empty() { DEFAULT_TIMEZONE } else { timezone };
+    let tz = if timezone.is_empty() {
+        DEFAULT_TIMEZONE
+    } else {
+        timezone
+    };
     let msg_id = new_uuid();
     json!({
         "action": "next",
@@ -249,11 +279,18 @@ mod tests {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/protocol/image_prepare_body.json");
         let fixture: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
-        let body = build_image_prepare_body("sunset over ocean", "gpt-image-2", DEFAULT_TIMEZONE, true);
+        let body =
+            build_image_prepare_body("sunset over ocean", "gpt-image-2", DEFAULT_TIMEZONE, true);
         assert_eq!(body["action"], fixture["action"]);
         assert_eq!(body["system_hints"], fixture["system_hints"]);
-        assert_eq!(body["client_contextual_info"], fixture["client_contextual_info"]);
-        assert_eq!(body["partial_query"]["content"]["parts"][0], "sunset over ocean");
+        assert_eq!(
+            body["client_contextual_info"],
+            fixture["client_contextual_info"]
+        );
+        assert_eq!(
+            body["partial_query"]["content"]["parts"][0],
+            "sunset over ocean"
+        );
     }
 
     #[test]
@@ -269,7 +306,10 @@ mod tests {
             true,
         );
         assert_eq!(body["system_hints"], fixture["system_hints"]);
-        assert_eq!(body["client_contextual_info"], fixture["client_contextual_info"]);
+        assert_eq!(
+            body["client_contextual_info"],
+            fixture["client_contextual_info"]
+        );
         assert_eq!(
             body["messages"][0]["content"]["parts"][0],
             "a red cube on white background"

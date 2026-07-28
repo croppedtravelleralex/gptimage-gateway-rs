@@ -236,14 +236,10 @@ fn pow_generate(seed: &str, difficulty: &str, config: &[Value], limit: usize) ->
     let diff_len = difficulty.len() / 2;
     let static_1 = format!(
         "{},",
-        python_compact_json(&Value::Array(config[..3].to_vec()))
-            .trim_end_matches(']')
+        python_compact_json(&Value::Array(config[..3].to_vec())).trim_end_matches(']')
     );
     let mid = python_compact_json(&Value::Array(config[4..9].to_vec()));
-    let static_2 = format!(
-        ",{},",
-        &mid[1..mid.len() - 1]
-    );
+    let static_2 = format!(",{},", &mid[1..mid.len() - 1]);
     let tail = python_compact_json(&Value::Array(config[10..].to_vec()));
     let static_3 = format!(",{}", &tail[1..]);
 
@@ -302,7 +298,8 @@ mod tests {
 
     #[test]
     fn parse_pow_resources_finds_scripts() {
-        let html = r#"<html data-build="prod-abc"><script src="/cdn/c/xyz/_/app.js"></script></html>"#;
+        let html =
+            r#"<html data-build="prod-abc"><script src="/cdn/c/xyz/_/app.js"></script></html>"#;
         let (sources, build) = parse_pow_resources(html);
         assert!(!sources.is_empty());
         assert_eq!(build, "c/xyz/_");

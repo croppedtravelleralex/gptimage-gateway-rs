@@ -828,12 +828,7 @@ mod auth_integration {
             .layer(middleware::from_fn_with_state(st.clone(), require_auth))
             .with_state(st);
         let me_resp = me_app
-            .oneshot(
-                Request::builder()
-                    .uri("/me")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/me").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(me_resp.status(), StatusCode::OK);

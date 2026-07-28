@@ -44,11 +44,8 @@ async fn consume_sse_until_ready(
     let mut stream = resp.into_data_stream();
 
     while Instant::now() < deadline {
-        let next = tokio::time::timeout_at(
-            tokio::time::Instant::from_std(deadline),
-            stream.next(),
-        )
-        .await;
+        let next =
+            tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), stream.next()).await;
         match next {
             Ok(Some(Ok(chunk))) => {
                 for payload in split_sse_data_lines(&chunk, &mut pending) {
@@ -143,8 +140,7 @@ async fn consume_sse_until_ready(
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -188,7 +184,10 @@ async fn main() -> Result<()> {
             boot.script_sources.len(),
             boot.data_build
         );
-    } else if steps.iter().any(|s| s == "requirements" || s == "sse" || s == "image") {
+    } else if steps
+        .iter()
+        .any(|s| s == "requirements" || s == "sse" || s == "image")
+    {
         let _ = client.bootstrap(true).await?;
     }
 
@@ -213,7 +212,9 @@ async fn main() -> Result<()> {
     }
 
     if steps.iter().any(|s| s == "sse") {
-        let requirements = requirements.as_ref().context("requirements step required before sse")?;
+        let requirements = requirements
+            .as_ref()
+            .context("requirements step required before sse")?;
         let prompt =
             env::var("PROBE_PROMPT").unwrap_or_else(|_| "Reply with one short word.".into());
         let timeout_secs: u64 = env::var("PROBE_SSE_TIMEOUT_SECS")

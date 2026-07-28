@@ -115,9 +115,7 @@ impl TlsClientBuilder {
             .http2(true)
             .build();
 
-        let mut builder = Client::builder()
-            .emulation(emulation)
-            .timeout(self.timeout);
+        let mut builder = Client::builder().emulation(emulation).timeout(self.timeout);
 
         if let Some(proxy) = self.proxy.filter(|p| !p.trim().is_empty()) {
             builder = builder.proxy(wreq::Proxy::all(proxy)?);
@@ -129,10 +127,7 @@ impl TlsClientBuilder {
 }
 
 /// Probe TLS fingerprint via reflection service.
-pub async fn probe_tls_fingerprint(
-    client: &Client,
-    endpoint: &str,
-) -> Result<Value> {
+pub async fn probe_tls_fingerprint(client: &Client, endpoint: &str) -> Result<Value> {
     let resp = client
         .get(endpoint)
         .header("accept", "application/json")

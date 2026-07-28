@@ -57,15 +57,13 @@ fn file_service_re() -> &'static Regex {
     FILE_SERVICE_ID_RE.get_or_init(|| Regex::new(r"file-service://([A-Za-z0-9_-]+)").unwrap())
 }
 fn real_image_file_re() -> &'static Regex {
-    REAL_IMAGE_FILE_ID_RE
-        .get_or_init(|| Regex::new(r"\bfile_00000000[a-f0-9]{24}\b").unwrap())
+    REAL_IMAGE_FILE_ID_RE.get_or_init(|| Regex::new(r"\bfile_00000000[a-f0-9]{24}\b").unwrap())
 }
 fn sediment_re() -> &'static Regex {
     SEDIMENT_ID_RE.get_or_init(|| Regex::new(r"sediment://([A-Za-z0-9_-]+)").unwrap())
 }
 fn conversation_id_re() -> &'static Regex {
-    CONVERSATION_ID_RE
-        .get_or_init(|| Regex::new(r#""conversation_id"\s*:\s*"([^"]+)""#).unwrap())
+    CONVERSATION_ID_RE.get_or_init(|| Regex::new(r#""conversation_id"\s*:\s*"([^"]+)""#).unwrap())
 }
 
 fn add_unique(values: &mut Vec<String>, candidates: &[String]) {
@@ -160,12 +158,17 @@ fn is_user_message_event(event: &Value) -> bool {
         .unwrap_or(false)
 }
 
-pub fn update_conversation_state(state: &mut ConversationState, payload: &str, event: Option<&Value>) {
+pub fn update_conversation_state(
+    state: &mut ConversationState,
+    payload: &str,
+    event: Option<&Value>,
+) {
     let (conversation_id, file_ids, sediment_ids) = extract_conversation_ids(payload);
     if !conversation_id.is_empty() && state.conversation_id.is_empty() {
         state.conversation_id = conversation_id;
     }
-    let is_patch_event = event.is_some_and(|e| e.get("o").and_then(|v| v.as_str()) == Some("patch"));
+    let is_patch_event =
+        event.is_some_and(|e| e.get("o").and_then(|v| v.as_str()) == Some("patch"));
     let is_user_msg = event.is_some_and(is_user_message_event);
     let image_context = event.is_some_and(is_image_tool_event)
         || (state.tool_invoked == Some(true) && !is_user_msg)
@@ -182,7 +185,11 @@ pub fn update_conversation_state(state: &mut ConversationState, payload: &str, e
             state.conversation_id = cid.to_string();
         }
     }
-    if let Some(v) = event.get("v").and_then(|v| v.get("conversation_id")).and_then(|v| v.as_str()) {
+    if let Some(v) = event
+        .get("v")
+        .and_then(|v| v.get("conversation_id"))
+        .and_then(|v| v.as_str())
+    {
         if !v.is_empty() {
             state.conversation_id = v.to_string();
         }
@@ -229,10 +236,7 @@ fn assistant_message_text(message: &Value) -> String {
         .and_then(|c| c.get("parts"))
         .and_then(|p| p.as_array());
     if let Some(parts) = parts {
-        let text: String = parts
-            .iter()
-            .filter_map(|p| p.as_str())
-            .collect();
+        let text: String = parts.iter().filter_map(|p| p.as_str()).collect();
         if !text.is_empty() {
             return text;
         }
@@ -451,7 +455,9 @@ pub fn split_sse_data_lines(chunk: &[u8], pending: &mut Vec<u8>) -> Vec<String> 
     let mut out = Vec::new();
     while let Some(pos) = pending.iter().position(|b| *b == b'\n') {
         let line = pending.drain(..=pos).collect::<Vec<_>>();
-        let line = String::from_utf8_lossy(&line).trim_end_matches(['\r', '\n']).to_string();
+        let line = String::from_utf8_lossy(&line)
+            .trim_end_matches(['\r', '\n'])
+            .to_string();
         if let Some(payload) = line.strip_prefix("data:") {
             let payload = payload.trim();
             if !payload.is_empty() {

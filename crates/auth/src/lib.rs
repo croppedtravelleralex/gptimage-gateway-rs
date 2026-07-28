@@ -117,7 +117,10 @@ impl std::fmt::Debug for AuthConfig {
             .field("cookie_secure", &self.cookie_secure)
             .field("allow_public_register", &self.allow_public_register)
             .field("mode", &self.mode)
-            .field("gateway_auth_key", &self.gateway_auth_key.as_ref().map(|_| "<redacted>"))
+            .field(
+                "gateway_auth_key",
+                &self.gateway_auth_key.as_ref().map(|_| "<redacted>"),
+            )
             .field("bootstrap_user", &self.bootstrap_user)
             .field("bootstrap_password", &"<redacted>")
             .finish()
@@ -440,10 +443,7 @@ impl AuthService {
         )
         .map_err(|e| AuthError::Other(e.to_string()))?;
         let now = OffsetDateTime::now_utc().unix_timestamp();
-        let _ = conn.execute(
-            "DELETE FROM revoked_jti WHERE exp < ?1",
-            params![now],
-        );
+        let _ = conn.execute("DELETE FROM revoked_jti WHERE exp < ?1", params![now]);
         Ok(())
     }
 

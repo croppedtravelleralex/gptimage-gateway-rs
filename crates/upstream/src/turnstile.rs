@@ -88,7 +88,10 @@ fn turnstile_to_str(value: &Value) -> String {
                 ("window.Object", "function Object() { [native code] }"),
                 ("window.Reflect.set", "function set() { [native code] }"),
                 ("window.performance.now", "function () { [native code] }"),
-                ("window.Object.create", "function create() { [native code] }"),
+                (
+                    "window.Object.create",
+                    "function create() { [native code] }",
+                ),
                 ("window.Object.keys", "function keys() { [native code] }"),
                 ("window.Math.random", "function random() { [native code] }"),
             ];
@@ -328,9 +331,9 @@ impl<'a> Vm<'a> {
             19 if !args.is_empty() => {
                 self.set_slot(
                     &args[0],
-                    Value::String(B64.encode(
-                        turnstile_to_str(&self.get_slot(&args[0])).as_bytes(),
-                    )),
+                    Value::String(
+                        B64.encode(turnstile_to_str(&self.get_slot(&args[0])).as_bytes()),
+                    ),
                 );
             }
             20 if args.len() >= 3 => {
@@ -451,7 +454,9 @@ pub fn solve_turnstile_token(dx: &str, p: &str) -> Option<String> {
         }
 
         let next = process_map.get("9").cloned();
-        let Value::Array(next_program) = next? else { break };
+        let Value::Array(next_program) = next? else {
+            break;
+        };
         let next_hash = program_hash(&next_program);
         if seen.contains(&next_hash) {
             break;
