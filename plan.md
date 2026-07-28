@@ -1,9 +1,8 @@
 # gptimage-gateway-rs 施工总控 · Rust 重写路线
 
-最后更新：2026-07-28（**upstream Panda 实网验证**）  
-状态：**数据面关键链路已通**（PoW/Turnstile/SSE/生图 `file_id`）；gateway 仍经 helper 出站。  
-数据面重写：功能加权 **≈32%** / 工作树体量 **≈19%** / **上游字节已突破 0%**，见 [docs/23](docs/23-rewrite-progress.md)。  
-✅ **Phase B′ 判据 1** + **生图探针 Panda 签字** —— 见 [docs/30](docs/30-phase1-probe-panda.md)、[docs/27](docs/27-tls-fingerprint-spike-20260726.md)。  
+最后更新：2026-07-28（**本地优先；Panda :8013 退役**）  
+状态：**本地完成实现为主**；Panda 仅只读导号/可选探针；**完整后独立上线**（不动 `:8012`）。  
+数据面重写：功能加权 **≈32%**，见 [docs/23](docs/23-rewrite-progress.md)。  
 ⚠️ **存在两条互不知晓的 Rust 化路径**，见 §1.0′。  
 ⚠️ **本仓 2,707 行中只有 943 行进了 git**；且生产上跑着 598 行未入库 Rust，见 §1.0″。  
 ⚠️ **当前架构下性能开销下降仍 = 0%**，见 [docs/26](docs/26-perf-measured-20260726.md)。  
@@ -15,8 +14,9 @@
 ### 目标
 
 - 独立新项目重写 ChatGPT 逆向**数据面**，提升同机并发与稳态资源。
-- 推进顺序：**协议契约可复现 → Rust 编排面 + 鉴权/UI → 调度/admission → RCA/运维对齐 → R2 生产 cutover（另立项）**。
-- **当前波次**：先把**前端框架 + 简易后端**（对话/鉴权/管理）跑通；生图执行路径后置接入。
+- 推进顺序：**本地 WSL 全栈实现 → upstream 接线 → 独立上线（另立项）**。
+- **已取消**：在 Panda `:8013` 上迭代半成品 gateway（2026-07-28 停服）。
+- **当前波次**：本地 `crates/upstream` + gateway 接线 + 鉴权/UI 闭环。
 
 ### 非目标（永久）
 

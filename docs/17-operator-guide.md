@@ -23,21 +23,20 @@
 | 是否出门 | `18-test-matrix.md` |
 | CF403 / 出口 | `../gptimage/docs/17-cf403-and-egress.md`（**号池侧**） |
 
-## Panda 拓扑（2026-07-26 实测）
+## Panda 拓扑（2026-07-28 更新）
 
-| 服务 | 端口 | 实际角色 |
-|------|------|---------|
-| `chatgpt2api-local` | **8012** | 生产 Python（公网），129 端点 |
-| `gptimage-gateway-rs` | **8013** | Rust face，**7 个端点，无鉴权，无 UI** |
-| `protocol_bridge`（容器 `gptimage-gateway-rs-helper`） | **19001** | curl_cffi helper（文本/SSE/生图） |
+| 服务 | 端口 | 状态 |
+|------|------|------|
+| `chatgpt2api-local` | **8012** | 生产 Python（公网），**不动** |
+| ~~`gptimage-gateway-rs`~~ | ~~**8013**~~ | **已退役**（2026-07-28 停 helper + 无监听） |
+| ~~`protocol_bridge` helper~~ | ~~**19001**~~ | **已移除** |
 
-`:8013` 生产态实有的 7 条：`/health`、`/v1/models`、`/v1/accounts/candidates`、
-`/v1/quota`、`/v1/quota/refresh`、`/v1/chat/completions`、`/v1/images/generations`。
+Rust 重写项目**不在 Panda 半成品阶段部署**。开发在本地 WSL；Panda 仅用于只读导号（`export_pin_account.py`）或一次性 `upstream-probe` 验证。
 
-- Bringup：`scripts/panda_bringup_rust_face.sh` —— **当前设 `GATEWAY_LISTEN=0.0.0.0:8013`、
-  `AUTH_DISABLE=1`、`IMAGE_ENABLED=1`，且不注入 `AUTH_*` / `GATEWAY_STATIC_DIR`**
-- 健康检查：`curl -fsS http://127.0.0.1:8013/health`（**注意会未鉴权回显 `pin_email` 明文**）
-- 回滚：停 Rust 进程 + `docker rm -f gptimage-gateway-rs-helper`
+### 历史（:8013 MVP，已取消）
+
+- 曾用 `scripts/panda_bringup_rust_face.sh` —— **脚本已禁用**
+- 回滚（若误启动）：`docker rm -f gptimage-gateway-rs-helper gptimage-gateway-rs-mvp` + `pkill -f gptimage-gateway-rs`
 
 ### helper 与生产共享同一份代码
 

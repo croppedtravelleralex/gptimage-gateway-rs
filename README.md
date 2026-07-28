@@ -34,7 +34,8 @@
 | Phase B fixtures | ✅ 全量 golden 差分 |
 | 生图运行时（gateway 接线） | ⏳ upstream 已通，face 未切 |
 | GHCR + upstream-probe | ✅ publish workflow；Panda pull 待授权 |
-| 生产切流 | ❌ 公网仍 `:8012` |
+| Panda `:8013` MVP | **已退役**（2026-07-28）；`panda_bringup_rust_face.sh` 已禁用 |
+| 生产 `:8012` | **不动** |
 
 ## 路线摘要
 
@@ -55,10 +56,15 @@ E    R2 生产 canary（另立项）
 cargo test
 cd web && npm run build
 
-# Panda（禁止 cargo build）
-cd /root/gptimage-gateway-rs && git pull --ff-only
-bash scripts/panda_bringup_rust_face.sh
-curl -fsS http://127.0.0.1:8013/api/backend/capabilities
+## 本地开发（主路径）
+
+```bash
+bash scripts/local_bringup_wsl.sh          # helper + gateway + UI
+bash scripts/local_smoke_full.sh
+cargo run -p upstream-probe --release      # 需 secrets/pin_account.json（Panda 导号）
+```
+
+Panda `:8013` MVP **已停服**；`scripts/panda_bringup_rust_face.sh` 已禁用。完整后**独立上线**，不替换现网 `:8012`。
 ```
 
 本地编 linux 二进制：

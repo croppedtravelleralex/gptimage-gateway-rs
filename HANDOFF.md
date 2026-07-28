@@ -1,6 +1,18 @@
 # HANDOFF — gptimage-gateway-rs
 
-最后更新：2026-07-28（**数据面关键链路 Panda 实网验证通过**）
+最后更新：2026-07-28（**本地优先；Panda :8013 已退役**）
+
+## 📌 部署策略（2026-07-28 决议）
+
+| 原则 | 说明 |
+|------|------|
+| **本地实现为主** | WSL：`local_bringup_wsl.sh` + `upstream-probe` + 全栈冒烟 |
+| **Panda `:8013` 已停** | `gptimage-gateway-rs-helper` 已移除；`:8013` 无监听 |
+| **不在半成品阶段改 Panda** | 不做 gateway「接线」、不替换 `:8013` MVP |
+| **完整后独立上线** | 新部署形态另立项；与现网 `:8012` 解耦 |
+| **Panda 仅只读辅助** | 导号 `export_pin_account.py`、一次性探针（可选） |
+
+`scripts/panda_bringup_rust_face.sh` **已禁用**（执行即 exit 1）。
 
 ## ✅ 编译与门禁：全绿
 
@@ -26,17 +38,15 @@ CI：`.github/workflows/ci.yml` + **GHCR** `.github/workflows/publish-gateway.ym
 
 详情与命令：[docs/30-phase1-probe-panda.md](docs/30-phase1-probe-panda.md)。
 
-**意义**：`crates/upstream/` 已直接向 ChatGPT 上游发字节 —— **「上游字节 0%」口径终结**。gateway 主路径仍经 helper，但数据面 Rust 库已可独立验证。
+**意义**：`crates/upstream/` 已实网验证。**后续在本地把 gateway + upstream 接完整，再独立上线**；不在 Panda `:8013` 上迭代。
 
-## ⚠️ 部署与供应链（未完全闭合）
+## ⚠️ 上线前不做的事
 
-| 事实 | 状态 |
+| 事项 | 状态 |
 |------|------|
-| 代码已 push `main` / `develop` | ✅ `bf1895e` |
-| GHCR 镜像构建 | ✅ 至少一次 publish 成功 |
-| Panda `docker pull` GHCR | ❌ **unauthorized**（需 PAT 登录或包公开） |
-| gateway 二进制替换 `:8013` | ❌ 仍跑旧 MVP；探针为一次性 `/tmp/upstream-probe` |
-| 路径 A 未入库 Rust 在生产跑 | ⚠️ 未解决（见 §供应链缺口） |
+| Panda `:8013` gateway/helper | **已停并退役**（2026-07-28） |
+| gateway 接线到 `upstream`（在 Panda 上） | **不做** —— 本地完成后再说 |
+| 替换 / 影响生产 `:8012` | **禁止** |
 
 ## 🎯 Phase B′ 判据 1 通过 —— 硬阻塞降级
 
@@ -65,13 +75,12 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 
 ## 当前状态
 
-- **Phase A**：Panda `Rust :8013` + `helper :19001`；face 仍为旧 MVP 二进制
-- **Phase A+**：鉴权 + `web/` 本地全栈可跑；panda 未部署
-- **Phase B 契约**：fixture diff 8/8 绿；`upstream` 生图 body 对齐 fixture
-- **Phase B′**：判据 1（TLS 指纹）✅；判据 2（CF 通过率）未测
-- **Phase B 数据面探针**：**生图链路 Panda 实网 ✅**（见 doc 30）；文本 SSE 探针待补跑
-- **数据面重写**：功能加权 **≈32%** / 工作树体量 **≈19%** / **上游字节已突破 0%**
-- **号源**：仅 Panda 导号（`export_pin_account.py`）；禁止本地注册/手工 token
+- **部署**：**本地 WSL 全栈**为主；Panda `:8013` **已退役**
+- **Phase A（旧）**：Panda `:8013` MVP —— **取消**，不再维护
+- **Phase A+**：鉴权 + `web/` —— **本地** `LOCAL_MODE=full`
+- **Phase B 数据面**：`upstream` 探针 Panda 签字 ✅；**本地**接 gateway + 文本 SSE
+- **数据面重写**：功能加权 **≈32%** / 本地完成目标 **≈68% 剩余**
+- **号源**：Panda 只读导号；禁止本地注册
 
 ### 新增 crate（2026-07-28）
 
@@ -124,23 +133,20 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 4. ~~Phase B′ 判据 2 框架~~ ✅ `scripts/cf_pass_rate_ab.py` + [docs/29](docs/29-cf-pass-rate-ab-20260727.md)（实测需 CF 窗口 + `SPIKE_PROXY`）
 5. ~~**对齐 Panda 鉴权**~~ ✅ `AuthMode` + `GATEWAY_AUTH_KEY` + `PANDA_ALIGN=1` bringup（JWT/Web UI 仍为增强，见 [docs/28](docs/28-decisions-20260727.md) §1.4）
 
-**P2 —— 数据面接线（当前波次）**
+**P2 —— 本地完成（当前波次）**
 
 | # | 事项 | 状态 |
 |---|------|------|
-| 1 | `upstream` crate：PoW/Turnstile/SSE/生图 | ✅ Panda 探针验证 |
-| 2 | GHCR 镜像 + `upstream-probe` | ✅ workflow 已建；Panda pull 待授权 |
-| 3 | 文本 SSE 探针（`PROBE_STEPS=requirements,sse`） | ⏳ 待 Panda 补跑 |
-| 4 | gateway 切 Rust 数据面（替换 helper 出站） | ☐ 未开工 |
-| 5 | estuary 下载 / upload 运行时 | ☐ 仅契约层 |
-| 6 | poll/settle + 号池选号/admission | ☐ Phase C |
-| 7 | Panda GHCR `docker login` | ☐ 运维 |
+| 1 | 本地全栈：`local_bringup_wsl.sh` + smoke | 持续 |
+| 2 | 本地 `upstream-probe`（文本 SSE + 生图） | 生图 ✅；文本待跑 |
+| 3 | gateway 接线 `upstream`（**仅本地**） | ☐ |
+| 4 | estuary / upload / poll/settle | ☐ |
+| 5 | 独立上线方案（新端口/新 compose，不动 `:8012`） | ☐ 完整后 |
 
-**P3（后续）**
+**已取消**
 
-- Phase C：admission 进编排面
-- 路径 A 598 行未入库代码补提交
-- `wreq` 升正式版后复测指纹
+- ~~Panda `:8013` bringup / 迭代~~
+- ~~半成品阶段替换 Panda gateway~~
 
 ## 本地命令（WSL 全栈）
 

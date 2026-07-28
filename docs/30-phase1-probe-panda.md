@@ -1,6 +1,9 @@
-# Phase 1/2 — Panda 探针验证（文本 + 生图）
+# 探针验证记录（Panda 一次性；:8013 MVP 已退役）
 
 最后更新：2026-07-28
+
+> **策略**：后续以**本地 WSL 实现**为主；Panda `:8013` gateway/helper **已停服**。
+> 完整后在**独立部署**上线，不替换生产 `:8012`。
 
 ## 已验证结果（2026-07-28 Panda 实网）
 
@@ -46,16 +49,14 @@ OUT_PATH=/root/gptimage-gateway-rs/secrets/pin_account.json \
   docker exec -i chatgpt2api-local python3 - < /root/gptimage-gateway-rs/scripts/export_pin_account.py
 ```
 
-### 2. 拉取最新镜像并启动 gateway（:8013）
+### 2. ~~拉取镜像并启动 gateway（:8013）~~ — 已取消
 
-按现有 compose/systemd 流程更新镜像：
+`:8013` MVP 已退役。GHCR 镜像仅作 CI 产物保留；不在 Panda 上跑 gateway。
+
+本地开发：
 
 ```bash
-# Panda（禁止本地 build）
-cd /root/gptimage-gateway-rs && git pull --ff-only
-docker pull ghcr.io/croppedtravelleralex/gptimage-gateway-rs:latest
-# 若用 compose profile probe：
-docker compose -f deploy/test-compose.example.yml --profile probe run --rm upstream-probe
+bash scripts/local_bringup_wsl.sh
 ```
 
 ### 3. 跑第一期文本探针

@@ -1,6 +1,6 @@
-# MVP test stack on panda (host networking for helper↔gateway).
-# Production chatgpt2api-local:8012 must stay untouched.
-#
+# MVP test stack — DEPRECATED (8013 retired 2026-07-28).
+# Use local: bash scripts/local_bringup_wsl.sh
+# Production chatgpt2api-local:8012 must stay untouched.#
 # Prep on host:
 #   1. export pin to /root/gptimage-gateway-rs/secrets/pin_account.json (not in git)
 #   2. HELPER uses GPTIMAGE_ROOT=/root/gptimage (code + config + curl_cffi via that venv/container)
