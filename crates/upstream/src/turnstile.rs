@@ -254,12 +254,11 @@ impl<'a> Vm<'a> {
                 let val = self.get_slot(&args[1]);
                 self.set_slot(&args[0], val);
             }
-            13 | 23 if args.len() >= 2 => {
-                if self.slot_defined_not_null(&args[0]) {
-                    if let Some(nested) = as_handler_op(&self.get_slot(&args[1])) {
-                        self.call_handler(nested, &args[2..]);
-                    }
-                }
+            13 | 23 if args.len() >= 2
+                && self.slot_defined_not_null(&args[0])
+                && let Some(nested) = as_handler_op(&self.get_slot(&args[1])) =>
+            {
+                self.call_handler(nested, &args[2..]);
             }
             14 if args.len() >= 2 => {
                 if let Value::String(s) = self.get_slot(&args[1]) {
@@ -336,18 +335,16 @@ impl<'a> Vm<'a> {
                     ),
                 );
             }
-            20 if args.len() >= 3 => {
-                if self.get_slot(&args[0]) == self.get_slot(&args[1]) {
-                    let target = self.get_slot(&args[2]);
-                    if target == json!("getBoundingClientRect") {
-                        if let Value::Object(obj) = self.get_slot(&args[0]) {
-                            if let Some(Value::Object(rect)) = obj.get("__rect") {
-                                self.set_slot(&args[0], Value::Object(rect.clone()));
-                            }
+            20 if args.len() >= 3 && self.get_slot(&args[0]) == self.get_slot(&args[1]) => {
+                let target = self.get_slot(&args[2]);
+                if target == json!("getBoundingClientRect") {
+                    if let Value::Object(obj) = self.get_slot(&args[0]) {
+                        if let Some(Value::Object(rect)) = obj.get("__rect") {
+                            self.set_slot(&args[0], Value::Object(rect.clone()));
                         }
-                    } else if let Some(nested) = as_handler_op(&target) {
-                        self.call_handler(nested, &args[3..]);
                     }
+                } else if let Some(nested) = as_handler_op(&target) {
+                    self.call_handler(nested, &args[3..]);
                 }
             }
             21 => {}

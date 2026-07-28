@@ -208,15 +208,14 @@ pub fn update_conversation_state(
             state.last_message_id = msg_id.to_string();
         }
     }
-    if event.get("type").and_then(|v| v.as_str()) == Some("moderation") {
-        if event
+    if event.get("type").and_then(|v| v.as_str()) == Some("moderation")
+        && event
             .get("moderation_response")
             .and_then(|m| m.get("blocked"))
             .and_then(|b| b.as_bool())
             .unwrap_or(false)
-        {
-            state.blocked = true;
-        }
+    {
+        state.blocked = true;
     }
     if event.get("type").and_then(|v| v.as_str()) == Some("server_ste_metadata") {
         if let Some(metadata) = event.get("metadata") {

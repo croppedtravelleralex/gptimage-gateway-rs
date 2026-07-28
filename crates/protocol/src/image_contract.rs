@@ -412,10 +412,18 @@ fn current_unix_time() -> f64 {
         .unwrap_or(0.0)
 }
 
+fn path_for(prefix: &str, key: &str) -> String {
+    if prefix.is_empty() {
+        key.to_string()
+    } else {
+        format!("{prefix}.{key}")
+    }
+}
+
 /// Deep-compare JSON for fixture tests; `volatile_paths` are skipped (dot paths).
 pub fn assert_json_matches_except(built: &Value, golden: &Value, volatile_paths: &[&str]) {
     fn walk(path: &str, built: &Value, golden: &Value, volatile: &[&str]) {
-        if volatile.iter().any(|v| *v == path) {
+        if volatile.contains(&path) {
             return;
         }
         match (built, golden) {
@@ -472,13 +480,5 @@ mod tests {
     fn resource_put_rejects_bearer_case_insensitive() {
         assert!(validate_resource_put_headers(&json!({"Content-Type":"image/png"})).is_ok());
         assert!(validate_resource_put_headers(&json!({"authorization":"Bearer x"})).is_err());
-    }
-}
-
-fn path_for(prefix: &str, key: &str) -> String {
-    if prefix.is_empty() {
-        key.to_string()
-    } else {
-        format!("{prefix}.{key}")
     }
 }
