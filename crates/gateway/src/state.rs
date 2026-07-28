@@ -1,5 +1,6 @@
 //! Shared gateway application state.
 
+use crate::config::DataPlane;
 use auth::AuthService;
 use helper_client::{HelperClient, PinAccount};
 use std::collections::HashMap;
@@ -9,6 +10,7 @@ use tokio::sync::{Mutex, Semaphore};
 
 pub struct AppState {
     pub helper: HelperClient,
+    pub data_plane: DataPlane,
     pub pin: PinAccount,
     pub accounts: Arc<Mutex<HashMap<String, PinAccount>>>,
     pub listen: String,

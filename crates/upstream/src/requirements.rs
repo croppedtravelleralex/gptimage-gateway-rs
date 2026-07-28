@@ -144,7 +144,7 @@ impl RequirementsClient {
         ]
     }
 
-    fn apply_headers(
+    pub(crate) fn apply_headers(
         builder: wreq::RequestBuilder,
         headers: &[(String, String)],
     ) -> wreq::RequestBuilder {

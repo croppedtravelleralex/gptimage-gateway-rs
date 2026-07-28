@@ -660,6 +660,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "upstream",
  "uuid",
 ]
 
@@ -2292,6 +2293,8 @@ dependencies = [
  "chrono",
  "futures-util",
  "hex",
+ "http-body-util",
+ "protocol",
  "rand 0.9.5",
  "regex",
  "serde",

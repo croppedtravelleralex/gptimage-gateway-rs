@@ -1,7 +1,7 @@
 # gptimage-gateway-rs 施工总控 · Rust 重写路线
 
-最后更新：2026-07-28（**本地优先；总进度 ≈43%**）  
-状态：L1 upstream 72% · L2 gateway 接线 0% · Panda `:8013` 已退役。  
+最后更新：2026-07-28（**L2 完成；总进度 ≈87%**）  
+状态：gateway 默认 `DATA_PLANE=upstream`；`UPSTREAM_ONLY=1` 可无 helper 跑 chat/生图。  
 进度详见 [docs/23](docs/23-rewrite-progress.md) L0–L5 分阶段表。  
 ⚠️ **存在两条互不知晓的 Rust 化路径**，见 §1.0′。  
 ⚠️ **本仓 2,707 行中只有 943 行进了 git**；且生产上跑着 598 行未入库 Rust，见 §1.0″。  

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Local WSL bringup: helper :19001 + Rust gateway :8013 (+ optional static Web UI).
+# Local WSL bringup: Rust gateway :8013 (+ optional helper :19001 + static Web UI).
 #
-# LOCAL_MODE=full   (default) JWT auth, IMAGE_ENABLED=1, web/out static UI
-# LOCAL_MODE=minimal          AUTH_DISABLE=1 smoke-only (no UI login)
+# LOCAL_MODE=full   (default) JWT auth, IMAGE_ENABLED=1, DATA_PLANE=upstream, web/out UI
+# LOCAL_MODE=minimal          AUTH_DISABLE=1 smoke-only (helper kept for backward compat)
+# UPSTREAM_ONLY=1             skip helper; gateway only (valid when DATA_PLANE=upstream)
 #
 # Usage:
 #   bash scripts/local_bringup_wsl.sh
+#   UPSTREAM_ONLY=1 bash scripts/local_bringup_wsl.sh
 #   LOCAL_MODE=minimal bash scripts/local_bringup_wsl.sh
 set -euo pipefail
 
@@ -13,6 +15,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 LOCAL_MODE="${LOCAL_MODE:-full}"
+UPSTREAM_ONLY="${UPSTREAM_ONLY:-0}"
 GPTIMAGE_ROOT="${GPTIMAGE_ROOT:-$ROOT/../gptimage}"
 BIN="${BIN:-$ROOT/target/release/gptimage-gateway-rs}"
 PIN="${PIN_ACCOUNT_FILE:-$ROOT/secrets/pin_account.json}"
@@ -51,16 +54,27 @@ if [[ ! -f "$PIN" ]]; then
   echo "missing $PIN (copy deploy/pin_account.json.example)"
   exit 2
 fi
-if [[ ! -f "$ROOT/helper/protocol_bridge.py" ]]; then
-  echo "missing helper/protocol_bridge.py"
-  exit 2
-fi
-if [[ ! -d "$GPTIMAGE_ROOT/services" ]]; then
-  echo "GPTIMAGE_ROOT invalid: $GPTIMAGE_ROOT"
-  exit 2
+
+# minimal always keeps helper for backward compat; full+upstream can skip via UPSTREAM_ONLY=1
+START_HELPER=0
+if [[ "$LOCAL_MODE" == "minimal" ]]; then
+  START_HELPER=1
+elif [[ "$UPSTREAM_ONLY" != "1" ]]; then
+  START_HELPER=1
 fi
 
-if [[ -z "${HELPER_INTERNAL_TOKEN:-}" ]]; then
+if [[ "$START_HELPER" == "1" ]]; then
+  if [[ ! -f "$ROOT/helper/protocol_bridge.py" ]]; then
+    echo "missing helper/protocol_bridge.py"
+    exit 2
+  fi
+  if [[ ! -d "$GPTIMAGE_ROOT/services" ]]; then
+    echo "GPTIMAGE_ROOT invalid: $GPTIMAGE_ROOT"
+    exit 2
+  fi
+fi
+
+if [[ "$START_HELPER" == "1" ]] && [[ -z "${HELPER_INTERNAL_TOKEN:-}" ]]; then
   if [[ -f "$ROOT/secrets/helper_token" ]]; then
     HELPER_INTERNAL_TOKEN=$(tr -d '\r\n' <"$ROOT/secrets/helper_token")
   else
@@ -69,8 +83,8 @@ if [[ -z "${HELPER_INTERNAL_TOKEN:-}" ]]; then
     chmod 600 "$ROOT/secrets/helper_token"
     echo "generated secrets/helper_token"
   fi
+  export HELPER_INTERNAL_TOKEN
 fi
-export HELPER_INTERNAL_TOKEN
 
 export GATEWAY_LISTEN="${GATEWAY_LISTEN:-127.0.0.1:8013}"
 export HELPER_URL="${HELPER_URL:-http://127.0.0.1:19001}"
@@ -87,6 +101,7 @@ HELPER_ENV=(
 )
 
 if [[ "$LOCAL_MODE" == "full" ]]; then
+  export DATA_PLANE="${DATA_PLANE:-upstream}"
   export AUTH_DISABLE=0
   export AUTH_MODE=jwt
   export IMAGE_ENABLED="${IMAGE_ENABLED:-1}"
@@ -129,6 +144,7 @@ if [[ "$LOCAL_MODE" == "full" ]]; then
     AUTH_BOOTSTRAP_ADMIN_PASSWORD="$AUTH_BOOTSTRAP_ADMIN_PASSWORD"
   )
 else
+  export DATA_PLANE="${DATA_PLANE:-helper}"
   export AUTH_DISABLE="${AUTH_DISABLE:-1}"
   export IMAGE_ENABLED="${IMAGE_ENABLED:-0}"
 fi
@@ -136,18 +152,23 @@ fi
 GATEWAY_ENV+=(
   GATEWAY_LISTEN="$GATEWAY_LISTEN"
   HELPER_URL="$HELPER_URL"
-  HELPER_INTERNAL_TOKEN="$HELPER_INTERNAL_TOKEN"
   PIN_ACCOUNT_FILE="$PIN"
+  DATA_PLANE="$DATA_PLANE"
   IMAGE_ENABLED="$IMAGE_ENABLED"
   AUTH_DISABLE="$AUTH_DISABLE"
   IMAGE_GLOBAL_CONCURRENCY="$IMAGE_GLOBAL_CONCURRENCY"
   MVP_MIN_IMAGE_QUOTA="$MVP_MIN_IMAGE_QUOTA"
   RUST_LOG=gateway=info
 )
+if [[ -n "${HELPER_INTERNAL_TOKEN:-}" ]]; then
+  GATEWAY_ENV+=(HELPER_INTERNAL_TOKEN="$HELPER_INTERNAL_TOKEN")
+fi
 
 pkill -f "$BIN" 2>/dev/null || true
-pkill -f "protocol_bridge.py" 2>/dev/null || true
-docker rm -f "$HELPER_NAME" 2>/dev/null || true
+if [[ "$START_HELPER" == "1" ]]; then
+  pkill -f "protocol_bridge.py" 2>/dev/null || true
+  docker rm -f "$HELPER_NAME" 2>/dev/null || true
+fi
 sleep 1
 
 start_helper_host() {
@@ -167,47 +188,55 @@ start_helper_host() {
   )
 }
 
-if command -v docker >/dev/null 2>&1 && docker image inspect chatgpt2api:local >/dev/null 2>&1; then
-  IMG=$(docker inspect chatgpt2api:local --format '{{.Id}}')
-  docker run -d --name "$HELPER_NAME" --network host \
-    -v "$GPTIMAGE_ROOT/api:/app/api:ro" \
-    -v "$GPTIMAGE_ROOT/services:/app/services:ro" \
-    -v "$GPTIMAGE_ROOT/utils:/app/utils:ro" \
-    -v "$GPTIMAGE_ROOT/scripts:/app/scripts:ro" \
-    -v "$GPTIMAGE_ROOT/config.json:/app/config.json:ro" \
-    -v "$GPTIMAGE_ROOT/data:/app/data" \
-    -v "$ROOT:/opt/gws" \
-    -e GPTIMAGE_ROOT=/app \
-    -e HELPER_LISTEN=127.0.0.1:19001 \
-    -e HELPER_INTERNAL_TOKEN="$HELPER_INTERNAL_TOKEN" \
-    -e PYTHONPATH=/opt/gws/helper \
-    -e MVP_MIN_IMAGE_QUOTA="${MVP_MIN_IMAGE_QUOTA:-1}" \
-    -e MVP_IMAGE_POLL_TIMEOUT_SECS="${MVP_IMAGE_POLL_TIMEOUT_SECS:-120}" \
-    -e MVP_IMAGE_WALL_SECS="${MVP_IMAGE_WALL_SECS:-180}" \
-    -e MVP_IMAGE_SSE_POST_READY_SECS="${MVP_IMAGE_SSE_POST_READY_SECS:-90}" \
-    -w /opt/gws/helper \
-    "$IMG" \
-    /app/.venv/bin/python3 protocol_bridge.py
+if [[ "$START_HELPER" == "1" ]]; then
+  if command -v docker >/dev/null 2>&1 && docker image inspect chatgpt2api:local >/dev/null 2>&1; then
+    IMG=$(docker inspect chatgpt2api:local --format '{{.Id}}')
+    docker run -d --name "$HELPER_NAME" --network host \
+      -v "$GPTIMAGE_ROOT/api:/app/api:ro" \
+      -v "$GPTIMAGE_ROOT/services:/app/services:ro" \
+      -v "$GPTIMAGE_ROOT/utils:/app/utils:ro" \
+      -v "$GPTIMAGE_ROOT/scripts:/app/scripts:ro" \
+      -v "$GPTIMAGE_ROOT/config.json:/app/config.json:ro" \
+      -v "$GPTIMAGE_ROOT/data:/app/data" \
+      -v "$ROOT:/opt/gws" \
+      -e GPTIMAGE_ROOT=/app \
+      -e HELPER_LISTEN=127.0.0.1:19001 \
+      -e HELPER_INTERNAL_TOKEN="$HELPER_INTERNAL_TOKEN" \
+      -e PYTHONPATH=/opt/gws/helper \
+      -e MVP_MIN_IMAGE_QUOTA="${MVP_MIN_IMAGE_QUOTA:-1}" \
+      -e MVP_IMAGE_POLL_TIMEOUT_SECS="${MVP_IMAGE_POLL_TIMEOUT_SECS:-120}" \
+      -e MVP_IMAGE_WALL_SECS="${MVP_IMAGE_WALL_SECS:-180}" \
+      -e MVP_IMAGE_SSE_POST_READY_SECS="${MVP_IMAGE_SSE_POST_READY_SECS:-90}" \
+      -w /opt/gws/helper \
+      "$IMG" \
+      /app/.venv/bin/python3 protocol_bridge.py
+  else
+    echo "docker/chatgpt2api:local not found — starting helper via host python"
+    start_helper_host || exit 2
+  fi
 else
-  echo "docker/chatgpt2api:local not found — starting helper via host python"
-  start_helper_host || exit 2
+  echo "UPSTREAM_ONLY=1 / DATA_PLANE=upstream — skipping helper"
 fi
 
 nohup env "${GATEWAY_ENV[@]}" "$BIN" >"$LOGDIR/rust-gateway.log" 2>&1 &
 echo $! >"$LOGDIR/rust-gateway.pid"
 
-for _ in $(seq 1 40); do
-  curl -fsS http://127.0.0.1:19001/health >/dev/null 2>&1 && break
-  sleep 0.5
-done
+if [[ "$START_HELPER" == "1" ]]; then
+  for _ in $(seq 1 40); do
+    curl -fsS http://127.0.0.1:19001/health >/dev/null 2>&1 && break
+    sleep 0.5
+  done
+fi
 for _ in $(seq 1 40); do
   curl -fsS "http://${GATEWAY_LISTEN}/health" >/dev/null 2>&1 && break
   sleep 0.5
 done
 
-echo "=== helper ==="
-curl -fsS http://127.0.0.1:19001/health || true
-echo
+if [[ "$START_HELPER" == "1" ]]; then
+  echo "=== helper ==="
+  curl -fsS http://127.0.0.1:19001/health || true
+  echo
+fi
 echo "=== gateway ==="
 if ! curl -fsS "http://${GATEWAY_LISTEN}/health"; then
   echo
@@ -216,9 +245,14 @@ if ! curl -fsS "http://${GATEWAY_LISTEN}/health"; then
   exit 1
 fi
 echo
-echo "LOCAL_MODE=$LOCAL_MODE GATEWAY_LISTEN=$GATEWAY_LISTEN IMAGE_ENABLED=$IMAGE_ENABLED AUTH_DISABLE=$AUTH_DISABLE"
+echo "LOCAL_MODE=$LOCAL_MODE DATA_PLANE=$DATA_PLANE UPSTREAM_ONLY=$UPSTREAM_ONLY GATEWAY_LISTEN=$GATEWAY_LISTEN IMAGE_ENABLED=$IMAGE_ENABLED AUTH_DISABLE=$AUTH_DISABLE"
 if [[ "$LOCAL_MODE" == "full" ]]; then
   echo "Web UI: http://${GATEWAY_LISTEN}/"
   echo "Admin:  ${AUTH_BOOTSTRAP_ADMIN_USER:-admin} / (see secrets/local_admin_password)"
-  echo "Smoke:  bash scripts/local_smoke_full.sh"
+  if [[ "$DATA_PLANE" == "upstream" ]]; then
+    echo "Smoke:  bash scripts/local_smoke_upstream.sh"
+    echo "        UPSTREAM_ONLY=1 bash scripts/local_bringup_wsl.sh  # gateway only, no helper"
+  else
+    echo "Smoke:  bash scripts/local_smoke_full.sh"
+  fi
 fi

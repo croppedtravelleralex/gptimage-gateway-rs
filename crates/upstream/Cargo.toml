@@ -10,6 +10,8 @@ bytes = { workspace = true }
 chrono = { version = "0.4", features = ["clock"] }
 futures-util = { workspace = true }
 hex = "0.4"
+http-body-util = { workspace = true }
+protocol = { path = "../protocol" }
 rand = "0.9"
 regex = "1"
 serde = { workspace = true }

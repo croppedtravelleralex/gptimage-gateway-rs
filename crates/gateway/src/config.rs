@@ -8,6 +8,33 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DataPlane {
+    Helper,
+    Upstream,
+}
+
+impl DataPlane {
+    pub fn from_env() -> Self {
+        match env::var("DATA_PLANE")
+            .ok()
+            .map(|v| v.trim().to_ascii_lowercase())
+        {
+            Some(ref s) if s == "helper" => Self::Helper,
+            Some(ref s) if s == "upstream" => Self::Upstream,
+            None => Self::Upstream,
+            Some(_) => Self::Upstream,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Helper => "helper",
+            Self::Upstream => "upstream",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct AccountFile {
     email: String,
@@ -24,6 +51,7 @@ struct AccountFile {
 pub struct Config {
     pub listen: String,
     pub helper_url: String,
+    pub data_plane: DataPlane,
     pub account: PinAccount,
     pub accounts: HashMap<String, PinAccount>,
     pub account_email_log: String,
@@ -50,6 +78,7 @@ pub fn load() -> Result<Config> {
         .ok()
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
+    let data_plane = DataPlane::from_env();
 
     let account = if let Ok(path) = env::var("PIN_ACCOUNT_FILE") {
         load_account_file(PathBuf::from(path))?
@@ -74,6 +103,7 @@ pub fn load() -> Result<Config> {
     Ok(Config {
         listen,
         helper_url,
+        data_plane,
         account,
         accounts,
         account_email_log,

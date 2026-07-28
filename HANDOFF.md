@@ -1,15 +1,14 @@
 # HANDOFF — gptimage-gateway-rs
 
-最后更新：2026-07-28（**本地优先；Panda :8013 已退役**）
+最后更新：2026-07-28（**L2 接线完成；总进度 ≈87%**）
 
 ## 📌 部署策略（2026-07-28 决议）
 
 | 原则 | 说明 |
 |------|------|
-| **本地实现为主** | WSL：`local_bringup_wsl.sh` + `upstream-probe` + 全栈冒烟 |
-| **Panda `:8013` 已停** | `gptimage-gateway-rs-helper` 已移除；`:8013` 无监听 |
-| **不在半成品阶段改 Panda** | 不做 gateway「接线」、不替换 `:8013` MVP |
-| **完整后独立上线** | 新部署形态另立项；与现网 `:8012` 解耦 |
+| **本地实现为主** | WSL：`UPSTREAM_ONLY=1 bash scripts/local_bringup_wsl.sh` + `local_smoke_upstream.sh` |
+| **默认数据面** | `DATA_PLANE=upstream`（chat/image 不经 Python helper） |
+| **不在 Panda 迭代** | `:8013` 已退役；完整后**独立上线** |
 | **Panda 仅只读辅助** | 导号 `export_pin_account.py`、一次性探针（可选） |
 
 `scripts/panda_bringup_rust_face.sh` **已禁用**（执行即 exit 1）。
@@ -78,8 +77,8 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 - **部署**：**本地 WSL 全栈**为主；Panda `:8013` **已退役**
 - **Phase A（旧）**：Panda `:8013` MVP —— **取消**，不再维护
 - **Phase A+**：鉴权 + `web/` —— **本地** `LOCAL_MODE=full`
-- **Phase B 数据面**：`upstream` 探针 Panda 签字 ✅；**本地**接 gateway + 文本 SSE
-- **总进度（本地可验收）**：**≈ 43%** —— 见 [docs/23](docs/23-rewrite-progress.md) L0–L5
+- **Phase B 数据面**：`upstream` 探针 Panda 签字 ✅；**gateway 已接 upstream**（`DATA_PLANE=upstream`）
+- **总进度（本地可验收）**：**≈ 87%** —— 见 [docs/23](docs/23-rewrite-progress.md) L0–L5
 - **数据面移植（旧口径）**：**≈ 32%**
 - **号源**：Panda 只读导号；禁止本地注册
 
@@ -110,7 +109,7 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 | 对话 | `POST /v1/chat/completions` | member + admin |
 | 号池/额度 | `/v1/accounts/candidates` `/v1/quota*` | admin |
 | 用户管理 | `/api/admin/users` | admin |
-| 生图 | `/v1/images/*` | **IMAGE_ENABLED=1** 时经 helper 执行；edits 仍 501 |
+| 生图 | `/v1/images/*` | **IMAGE_ENABLED=1** 时走 upstream（`DATA_PLANE=upstream`）或 helper 降级路径 |
 
 ## 下一步
 
@@ -134,15 +133,15 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 4. ~~Phase B′ 判据 2 框架~~ ✅ `scripts/cf_pass_rate_ab.py` + [docs/29](docs/29-cf-pass-rate-ab-20260727.md)（实测需 CF 窗口 + `SPIKE_PROXY`）
 5. ~~**对齐 Panda 鉴权**~~ ✅ `AuthMode` + `GATEWAY_AUTH_KEY` + `PANDA_ALIGN=1` bringup（JWT/Web UI 仍为增强，见 [docs/28](docs/28-decisions-20260727.md) §1.4）
 
-**当前波次：L1 → L2**（见 [docs/23](docs/23-rewrite-progress.md)）
+**当前波次：L3 本地 E2E**（见 [docs/23](docs/23-rewrite-progress.md)）
 
 | 阶段 | 进度 | 下一步 |
 |------|------|--------|
 | L0 工程基线 | 100% | — |
-| L1 upstream | 72% | 本地文本 SSE 探针 |
-| L2 gateway 接线 | 0% | chat/image 改走 `upstream` |
-| L3 本地全栈 E2E | 36% | L2 完成后 smoke/UI |
-| L4 收尾 | 15% | estuary/poll |
+| L1 upstream | 90% | estuary/poll 收尾 |
+| L2 gateway 接线 | 100% | — |
+| L3 本地全栈 E2E | 70% | Web UI 走 upstream + 并发冒烟 |
+| L4 收尾 | 40% | CF AB + wreq 升版 |
 | L5 独立上线 | 0% | L1–L4 后 |
 
 **已取消**：Panda `:8013`、半成品接线上 Panda
@@ -155,11 +154,16 @@ bash scripts/setup_wsl_helper_deps.sh
 
 # 2) 在 Panda 导号：scripts/export_pin_account.py → secrets/pin_account.json（禁止本地注册/手工 token）
 
-# 3) 全栈启动（默认 LOCAL_MODE=full：JWT + IMAGE_ENABLED=1 + web/out UI）
+# 3) 全栈启动（默认 LOCAL_MODE=full：JWT + IMAGE_ENABLED=1 + DATA_PLANE=upstream）
 bash scripts/local_bringup_wsl.sh
 
+# 仅 gateway（无 helper，upstream 模式推荐）
+UPSTREAM_ONLY=1 bash scripts/local_bringup_wsl.sh
+
 # 4) 验收
-bash scripts/local_smoke_full.sh
+bash scripts/local_smoke_upstream.sh
+IMAGE_ENABLED=1 bash scripts/local_smoke_upstream.sh   # 含生图腿（UPSTREAM_IMAGE_TIMEOUT_SECS=90）
+bash scripts/local_smoke_full.sh                     # helper 路径遗留验收
 
 # 仅 API 冒烟（无 UI / 无鉴权）
 LOCAL_MODE=minimal bash scripts/local_bringup_wsl.sh
@@ -170,9 +174,11 @@ cargo test --workspace
 
 浏览器打开 `http://127.0.0.1:8013/`，管理员账号见 `secrets/local_admin_password`。
 
-**LOCAL_MODE=full 包含**：release 编译、Next.js 静态导出、`GATEWAY_STATIC_DIR`、JWT bootstrap、生图开关、helper MVP 超时参数。
+**LOCAL_MODE=full 包含**：release 编译、Next.js 静态导出、`GATEWAY_STATIC_DIR`、JWT bootstrap、生图开关、`DATA_PLANE=upstream`。
 
-**仍依赖 sibling `../gptimage`**：数据面（TLS/PoW/SSE/上游）在 helper，非 Rust 直连。
+**`UPSTREAM_ONLY=1`**：仅启动 gateway，跳过 helper docker/python（chat/image 经 Rust upstream）。
+
+**`LOCAL_MODE=minimal`**：仍启动 helper（向后兼容旧 smoke 路径）。
 
 ## 本地命令（开发单项）
 

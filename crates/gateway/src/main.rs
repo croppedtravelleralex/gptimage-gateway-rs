@@ -4,6 +4,7 @@ mod auth_routes;
 mod backend_routes;
 mod config;
 mod state;
+mod upstream_face;
 
 use anyhow::Context;
 use auth::{AuthConfig, AuthService};
@@ -21,6 +22,8 @@ use axum::{
     Json, Router,
 };
 use backend_routes::{admin_status, capabilities};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use config::DataPlane;
 use futures_util::StreamExt;
 use helper_client::{
     HelperClient, ImageRunRequest, PinAccount, QuotaRefreshRequest, TextRunRequest,
@@ -127,6 +130,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState {
         helper,
+        data_plane: cfg.data_plane,
         pin: cfg.account,
         accounts: Arc::new(Mutex::new(accounts)),
         listen: cfg.listen.clone(),
@@ -190,6 +194,7 @@ async fn main() -> anyhow::Result<()> {
     info!(
         listen=%cfg.listen,
         helper=%cfg.helper_url,
+        data_plane=%cfg.data_plane.as_str(),
         email=%cfg.account_email_log,
         image_global_concurrency=%cfg.image_global_concurrency,
         image_enabled=%cfg.image_enabled,
@@ -385,14 +390,22 @@ async fn chat_completions(
             Ok(a) => a,
             Err(r) => return r,
         };
-
-    let bridge_req = TextRunRequest {
-        account,
-        prompt,
-        model: req.model.clone(),
-    };
+    let model = req.model.clone();
 
     if req.stream {
+        if st.data_plane == DataPlane::Upstream {
+            return err(
+                StatusCode::NOT_IMPLEMENTED,
+                "streaming chat is not supported in upstream data plane (set DATA_PLANE=helper or omit stream=true)",
+                "stream_unsupported_upstream",
+                Some("gate"),
+            );
+        }
+        let bridge_req = TextRunRequest {
+            account,
+            prompt,
+            model,
+        };
         return match st.helper.run_text_stream(&bridge_req).await {
             Ok(upstream) => {
                 let status = upstream.status();
@@ -428,6 +441,32 @@ async fn chat_completions(
         };
     }
 
+    if st.data_plane == DataPlane::Upstream {
+        match upstream_face::run_text(&account, prompt, model).await {
+            Ok(content) => {
+                return (
+                    StatusCode::OK,
+                    Json(chat_completion_response(&req.model, &content)),
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                error!(error=%e, "upstream text call failed");
+                return err(
+                    StatusCode::BAD_GATEWAY,
+                    e.to_string(),
+                    "text_failed",
+                    Some("upstream"),
+                );
+            }
+        }
+    }
+
+    let bridge_req = TextRunRequest {
+        account,
+        prompt,
+        model,
+    };
     match st.helper.run_text(&bridge_req).await {
         Ok(r) if r.ok => {
             let content = r.content.unwrap_or_default();
@@ -506,53 +545,77 @@ async fn image_generations(
         account: account.clone(),
         min_remaining: st.min_image_quota,
     };
-    match st.helper.refresh_quota(&qreq).await {
-        Ok(q) if q.ok && q.imageable.unwrap_or(false) => {}
-        Ok(q) if q.ok => {
-            drop(permit);
-            return err(
-                StatusCode::TOO_MANY_REQUESTS,
-                format!(
-                    "image_quota_insufficient: remaining={:?} status={:?} min={} restore_at={:?}",
-                    q.remaining, q.status, st.min_image_quota, q.restore_at
-                ),
-                "image_quota_insufficient",
-                Some("gate"),
-            );
-        }
-        Ok(q) => {
-            drop(permit);
-            let fault = q.fault.as_deref().unwrap_or("upstream");
-            let msg = q
-                .error
-                .unwrap_or_else(|| "quota refresh failed before image".into());
-            let code = if fault == "self" {
-                StatusCode::INTERNAL_SERVER_ERROR
-            } else {
-                StatusCode::BAD_GATEWAY
-            };
-            return err(code, msg, "quota_refresh_failed", Some(fault));
-        }
-        Err(e) => {
-            drop(permit);
-            error!(error=%e, "helper quota precheck failed");
-            return err(
-                StatusCode::BAD_GATEWAY,
-                e.to_string(),
-                "helper_unreachable",
-                Some("self"),
-            );
+    if st.data_plane == DataPlane::Upstream {
+        info!(email=%account.email, "upstream image: skipping helper quota precheck");
+    } else {
+        match st.helper.refresh_quota(&qreq).await {
+            Ok(q) if q.ok && q.imageable.unwrap_or(false) => {}
+            Ok(q) if q.ok => {
+                drop(permit);
+                return err(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!(
+                        "image_quota_insufficient: remaining={:?} status={:?} min={} restore_at={:?}",
+                        q.remaining, q.status, st.min_image_quota, q.restore_at
+                    ),
+                    "image_quota_insufficient",
+                    Some("gate"),
+                );
+            }
+            Ok(q) => {
+                drop(permit);
+                let fault = q.fault.as_deref().unwrap_or("upstream");
+                let msg = q
+                    .error
+                    .unwrap_or_else(|| "quota refresh failed before image".into());
+                let code = if fault == "self" {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                } else {
+                    StatusCode::BAD_GATEWAY
+                };
+                return err(code, msg, "quota_refresh_failed", Some(fault));
+            }
+            Err(e) => {
+                drop(permit);
+                error!(error=%e, "helper quota precheck failed");
+                return err(
+                    StatusCode::BAD_GATEWAY,
+                    e.to_string(),
+                    "helper_unreachable",
+                    Some("self"),
+                );
+            }
         }
     }
 
-    let bridge_req = ImageRunRequest {
-        account: account.clone(),
-        prompt: req.prompt.clone(),
-        model: req.model.clone(),
-        size: req.size.clone(),
-    };
     let t0 = Instant::now();
-    let result = st.helper.run_image(&bridge_req).await;
+    let result: Result<helper_client::BridgeOk, anyhow::Error> =
+        if st.data_plane == DataPlane::Upstream {
+            upstream_face::run_image(&account, req.prompt.clone(), req.model.clone())
+                .await
+                .map(|bytes| {
+                    let b64 = BASE64.encode(bytes);
+                    helper_client::BridgeOk {
+                        ok: true,
+                        content: None,
+                        b64_json: Some(b64),
+                        conversation_id: None,
+                        fault: None,
+                        error: None,
+                        elapsed_ms: None,
+                        raw: None,
+                        quota: None,
+                    }
+                })
+        } else {
+            let bridge_req = ImageRunRequest {
+                account: account.clone(),
+                prompt: req.prompt.clone(),
+                model: req.model.clone(),
+                size: req.size.clone(),
+            };
+            st.helper.run_image(&bridge_req).await
+        };
     let elapsed_ms = t0.elapsed().as_millis();
     drop(permit);
 
@@ -590,12 +653,20 @@ async fn image_generations(
             err(code, msg, err_code, Some(class.as_str()))
         }
         Err(e) => {
-            error!(email=%account.email, elapsed_ms, error=%e, "helper image call failed");
+            error!(email=%account.email, elapsed_ms, error=%e, "image call failed");
             err(
                 StatusCode::BAD_GATEWAY,
                 e.to_string(),
-                "helper_unreachable",
-                Some("self"),
+                if st.data_plane == DataPlane::Upstream {
+                    "upstream_unreachable"
+                } else {
+                    "helper_unreachable"
+                },
+                Some(if st.data_plane == DataPlane::Upstream {
+                    "upstream"
+                } else {
+                    "self"
+                }),
             )
         }
     }
@@ -666,6 +737,7 @@ mod auth_integration {
         };
         Arc::new(AppState {
             helper: HelperClient::new("http://127.0.0.1:1").unwrap(),
+            data_plane: DataPlane::Helper,
             pin: pin.clone(),
             accounts: Arc::new(Mutex::new(HashMap::from([(pin.email.clone(), pin)]))),
             listen: "127.0.0.1:0".into(),
@@ -703,6 +775,7 @@ mod auth_integration {
         };
         let st = Arc::new(AppState {
             helper: HelperClient::new("http://127.0.0.1:1").unwrap(),
+            data_plane: DataPlane::Helper,
             pin: pin.clone(),
             accounts: Arc::new(Mutex::new(HashMap::from([(pin.email.clone(), pin)]))),
             listen: "127.0.0.1:0".into(),
@@ -813,6 +886,7 @@ mod auth_integration {
         };
         let st = Arc::new(AppState {
             helper: HelperClient::new("http://127.0.0.1:1").unwrap(),
+            data_plane: DataPlane::Helper,
             pin: pin.clone(),
             accounts: Arc::new(Mutex::new(HashMap::from([(pin.email.clone(), pin)]))),
             listen: "127.0.0.1:0".into(),

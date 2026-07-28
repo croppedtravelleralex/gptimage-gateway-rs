@@ -17,6 +17,7 @@ bytes = { workspace = true }
 cookie = { workspace = true }
 futures-util = { workspace = true }
 helper_client = { path = "../helper_client" }
+upstream = { path = "../upstream" }
 protocol = { path = "../protocol" }
 reqwest = { workspace = true }
 serde = { workspace = true }

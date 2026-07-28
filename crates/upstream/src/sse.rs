@@ -1,3 +1,8 @@
+use std::time::{Duration, Instant};
+
+use anyhow::{bail, Result};
+use futures_util::StreamExt;
+use http_body_util::BodyExt;
 use regex::Regex;
 use serde_json::Value;
 
@@ -308,6 +313,7 @@ fn assistant_raw_text(event: &Value, current_text: &str) -> String {
     apply_text_patch(event, current_text)
 }
 
+#[derive(Debug)]
 pub struct SseParser {
     state: ConversationState,
     event_count: usize,
@@ -465,6 +471,78 @@ pub fn split_sse_data_lines(chunk: &[u8], pending: &mut Vec<u8>) -> Vec<String> 
         }
     }
     out
+}
+
+/// SSE consumption target (`upstream-probe::consume_sse_until_ready`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SseConsumeMode {
+    Text,
+    Image,
+}
+
+/// Result of consuming an SSE stream until the target predicate is satisfied.
+#[derive(Debug)]
+pub struct ConsumedSse {
+    pub parser: SseParser,
+}
+
+/// Consume an upstream SSE response until `text_ready` or `image_ready` (`upstream-probe`).
+pub async fn consume_sse_until(
+    resp: wreq::Response,
+    mode: SseConsumeMode,
+    timeout: Duration,
+) -> Result<ConsumedSse> {
+    let mut parser = SseParser::new();
+    let mut pending = Vec::new();
+    let started = Instant::now();
+    let deadline = started + timeout;
+    let mut stream = resp.into_data_stream();
+
+    while Instant::now() < deadline {
+        let next =
+            tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), stream.next()).await;
+        match next {
+            Ok(Some(Ok(chunk))) => {
+                for payload in split_sse_data_lines(&chunk, &mut pending) {
+                    if let Some(event) = parser.feed_line(&payload) {
+                        match mode {
+                            SseConsumeMode::Text => {
+                                if parser.text_ready().is_some() {
+                                    return Ok(ConsumedSse { parser });
+                                }
+                            }
+                            SseConsumeMode::Image => {
+                                if parser.image_ready().is_some() {
+                                    return Ok(ConsumedSse { parser });
+                                }
+                            }
+                        }
+                        if event.done {
+                            break;
+                        }
+                    }
+                }
+            }
+            Ok(Some(Err(_))) => break,
+            Ok(None) => break,
+            Err(_) => break,
+        }
+    }
+
+    match mode {
+        SseConsumeMode::Text => {
+            if parser.text_ready().is_some() {
+                return Ok(ConsumedSse { parser });
+            }
+            bail!("sse ended before text ready predicate");
+        }
+        SseConsumeMode::Image => {
+            if parser.image_ready().is_some() {
+                return Ok(ConsumedSse { parser });
+            }
+            bail!("sse ended before image file_id predicate");
+        }
+    }
 }
 
 #[cfg(test)]

@@ -5,8 +5,10 @@
 
 pub mod account;
 pub mod conversation;
+pub mod estuary;
 pub mod pow;
 pub mod requirements;
+pub mod runtime;
 pub mod sentinel;
 pub mod sse;
 pub mod tls;
@@ -14,4 +16,8 @@ pub mod turnstile;
 
 pub use account::PinAccount;
 pub use requirements::{ChatRequirements, RequirementsClient};
-pub use sse::{ConversationState, ImageSseReady, SseEvent, SseParser, TextSseReady};
+pub use runtime::UpstreamRuntime;
+pub use sse::{
+    consume_sse_until, ConsumedSse, ConversationState, ImageSseReady, SseConsumeMode, SseEvent,
+    SseParser, TextSseReady,
+};

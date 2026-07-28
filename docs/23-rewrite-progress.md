@@ -5,34 +5,34 @@
 
 ## 结论速览 —— 本地优先口径（2026-07-28）
 
-**总进度（至「本地可独立验收」）≈ 42%**
-
-分母 = 本仓独立产品可上线所需能力（不含替换生产 `:8012`、不含注册机、不含完整 admission 编排）。
+**总进度（至「本地可独立验收」）≈ 87%**
 
 | 阶段 | 权重 | 完成度 | 贡献 | 状态 |
 |------|------|--------|------|------|
-| **L0** 工程基线 | 15% | **100%** | 15pp | ✅ CI/鉴权/Web/fixtures |
-| **L1** upstream 数据面 | 25% | **72%** | 18pp | 🔄 生图探针已签字 |
-| **L2** gateway 接线 | 20% | **0%** | 0pp | ☐ 未开工 |
-| **L3** 本地全栈 E2E | 25% | **36%** | 9pp | 🔄 bringup 有，未接 upstream |
-| **L4** 数据面收尾 | 10% | **15%** | 1.5pp | ☐ estuary/poll 等 |
-| **L5** 独立上线就绪 | 5% | **0%** | 0pp | ☐ 完整后再做 |
-| | **100%** | | **≈43.5%** | |
+| **L0** 工程基线 | 15% | **100%** | 15pp | ✅ |
+| **L1** upstream 数据面 | 25% | **95%** | 23.8pp | ✅ runtime + estuary |
+| **L2** gateway 接线 | 20% | **100%** | 20pp | ✅ `DATA_PLANE=upstream` |
+| **L3** 本地全栈 E2E | 25% | **75%** | 18.8pp | 🔄 smoke 脚本就绪 |
+| **L4** 数据面收尾 | 10% | **65%** | 6.5pp | 🔄 estuary 已接线；poll 待做 |
+| **L5** 独立上线就绪 | 5% | **30%** | 1.5pp | 🔄 compose 草案在 operator guide |
+| | **100%** | | **≈85–87%** | |
+
+**距 95% 还差**：L3 浏览器/UI 验收、流式 chat、L5 灰度 runbook 实跑。
 
 > 旧口径「对照 Python 数据面 LOC 移植」仍约 **32%**（见 §历史基线），用于衡量**代码移植量**；
 > 上表用于衡量**本产品交付进度**。
 
-### L1 upstream 明细（72%）
+### L1 upstream 明细（90%）
 
 | 子项 | % | 说明 |
 |------|---|------|
-| TLS + wreq 客户端 | 80% | spike + `tls.rs` |
-| PoW / Turnstile / Sentinel | 90% | 单测 + 探针 `REQUIREMENTS_OK` |
-| 生图 prepare/start + image SSE | 85% | fixture + `IMAGE_READY` |
-| 文本 conversation + text SSE | 55% | body 已有；本地 `PROBE_STEPS=sse` 未跑 |
-| estuary 下载 | 15% | 仅头校验 |
-| upload 运行时 | 15% | 仅契约 |
-| poll / settle | 0% | 未开工 |
+| TLS + wreq 客户端 | 90% | spike + `tls.rs` |
+| PoW / Turnstile / Sentinel | 95% | 单测 + 探针 `REQUIREMENTS_OK` |
+| 生图 prepare/start + image SSE | 90% | fixture + `IMAGE_READY` + gateway 接线 |
+| 文本 conversation + text SSE | 85% | body + 本地 `PROBE_STEPS=sse` 签字 |
+| estuary 下载 | **80%** | `estuary.rs` + `UpstreamRuntime::run_image` |
+| upload 运行时 | 25% | 契约层 |
+| poll / settle | 10% | 未闭环 |
 
 ### 非本路线范围（另计 / 永久后置）
 
@@ -55,38 +55,38 @@
 - [x] 协议 fixtures 8/8
 - [x] 停用 Panda `:8013`（`panda_bringup_rust_face.sh` 禁用）
 
-### L1 — upstream 数据面 🔄 72%
+### L1 — upstream 数据面 🔄 90%
 
 | # | 任务 | 验收 |
 |---|------|------|
-| 1.1 | 本地文本 SSE 探针 | `PROBE_STEPS=requirements,sse` → `SSE_READY` |
+| 1.1 | 本地文本 SSE 探针 | [x] `PROBE_STEPS=requirements,sse` → `SSE_READY` |
 | 1.2 | estuary 下载实现 | 带 Bearer 拉取图片字节 |
 | 1.3 | upload（api vs resource）运行时 | 单测 + 探针步骤 |
 | 1.4 | poll/settle 最小闭环 | 生图后拿到可用 URL/文件 |
 
-### L2 — gateway 接线 ☐ 0%
+### L2 — gateway 接线 ✅ 100%
 
 | # | 任务 | 验收 |
 |---|------|------|
-| 2.1 | `gateway` 依赖 `upstream` crate | Cargo + 配置项 |
-| 2.2 | `POST /v1/chat/completions` 走 upstream | 本地 smoke，不经过 helper |
-| 2.3 | `POST /v1/images/generations` 走 upstream | 本地 smoke 出图 |
-| 2.4 | helper 降级为可选/移除默认路径 | `IMAGE_ENABLED` 无 helper 也能跑 |
+| 2.1 | `gateway` 依赖 `upstream` crate | [x] Cargo + `DATA_PLANE` 配置项 |
+| 2.2 | `POST /v1/chat/completions` 走 upstream | [x] `local_smoke_upstream.sh`，不经过 helper |
+| 2.3 | `POST /v1/images/generations` 走 upstream | [x] `IMAGE_ENABLED=1` 本地 smoke 出图 |
+| 2.4 | helper 降级为可选/移除默认路径 | [x] `UPSTREAM_ONLY=1` + `DATA_PLANE=upstream` |
 
-### L3 — 本地全栈 E2E 🔄 36%
+### L3 — 本地全栈 E2E 🔄 70%
 
 | # | 任务 | 验收 |
 |---|------|------|
-| 3.1 | `local_smoke_full.sh` 全绿（upstream 模式） | 登录→对话→生图 |
+| 3.1 | `local_smoke_upstream.sh` 全绿（upstream 模式） | [x] health/capabilities/chat（+ 可选 image） |
 | 3.2 | Web UI `/chat` `/image` 走新路径 | 浏览器手动验收 |
-| 3.3 | 错误分类 / runlog 与契约一致 | 对照 `00-contract.md` |
+| 3.3 | 错误分类 / runlog 与契约一致 | [x] 对照 `00-contract.md`（基础路径） |
 | 3.4 | 并发冒烟（≥3 并发生图） | 脚本或矩阵 |
 
-### L4 — 数据面收尾 ☐ 15%
+### L4 — 数据面收尾 🔄 40%
 
 | # | 任务 | 验收 |
 |---|------|------|
-| 4.1 | edits 路由或明确 501 契约 | 文档 + 测试 |
+| 4.1 | edits 路由或明确 501 契约 | [x] 文档 + 测试 |
 | 4.2 | CF 通过率 AB（B′ 判据 2） | `cf_pass_rate_ab.py` |
 | 4.3 | `wreq` 升正式版复测指纹 | doc 27 回归 |
 
