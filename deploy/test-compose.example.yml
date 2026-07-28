@@ -26,7 +26,7 @@ services:
     restart: "no"
 
   gateway:
-    image: ghcr.io/example/gptimage-gateway-rs:test
+    image: ghcr.io/croppedtravelleralex/gptimage-gateway-rs:latest
     network_mode: host
     environment:
       - GATEWAY_LISTEN=0.0.0.0:8013
@@ -37,4 +37,20 @@ services:
       - /root/gptimage-gateway-rs/secrets/pin_account.json:/secrets/pin_account.json:ro
     depends_on:
       - helper
+    restart: "no"
+
+  # One-shot Phase-1 text probe (override command):
+  #   docker compose run --rm upstream-probe
+  upstream-probe:
+    image: ghcr.io/croppedtravelleralex/gptimage-gateway-rs:latest
+    network_mode: host
+    entrypoint: ["/usr/local/bin/upstream-probe"]
+    environment:
+      - PIN_ACCOUNT_FILE=/secrets/pin_account.json
+      - PROBE_STEPS=requirements,sse
+      - PROBE_SSE_TIMEOUT_SECS=120
+      - RUST_LOG=info
+    volumes:
+      - /root/gptimage-gateway-rs/secrets/pin_account.json:/secrets/pin_account.json:ro
+    profiles: ["probe"]
     restart: "no"

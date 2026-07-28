@@ -40,7 +40,7 @@ def main() -> int:
             continue
         if status in {"禁用", "异常"}:
             continue
-        if st and st not in {"verified_ready", "verified", "local_verified"}:
+        if st and st not in {"verified_ready", "verified"}:
             continue
         score = 0
         if prefer and email.lower() == prefer:

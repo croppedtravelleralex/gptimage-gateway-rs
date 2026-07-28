@@ -44,11 +44,12 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 5. [docs/23-rewrite-progress.md](docs/23-rewrite-progress.md) — **进度量化**（六口径）
 6. [docs/24-gap-inventory.md](docs/24-gap-inventory.md) — **能力 gap 全量清单**
 7. [plan.md](plan.md) — 进度 + Phase A→E 路线
-8. [docs/21-auth-and-ui.md](docs/21-auth-and-ui.md) — 鉴权、Web UI、环境变量
-9. [docs/28-decisions-20260727.md](docs/28-decisions-20260727.md) — **架构决策**（§6.3 六项，以 Panda 为准）
-10. [docs/00-contract.md](docs/00-contract.md) — 协议契约 / error_class
-11. [docs/18-test-matrix.md](docs/18-test-matrix.md) — 验收矩阵
-12. [docs/17-operator-guide.md](docs/17-operator-guide.md) — 拓扑与故障树
+8. [docs/30-phase1-probe-panda.md](docs/30-phase1-probe-panda.md) — **第一期 Panda 探针验证**（文本 SSE + 生图探针）
+9. [docs/21-auth-and-ui.md](docs/21-auth-and-ui.md) — 鉴权、Web UI、环境变量
+10. [docs/28-decisions-20260727.md](docs/28-decisions-20260727.md) — **架构决策**（§6.3 六项，以 Panda 为准）
+11. [docs/00-contract.md](docs/00-contract.md) — 协议契约 / error_class
+12. [docs/18-test-matrix.md](docs/18-test-matrix.md) — 验收矩阵
+13. [docs/17-operator-guide.md](docs/17-operator-guide.md) — 拓扑与故障树
 
 ## 当前状态
 
@@ -118,7 +119,7 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 # 1) 一次性：helper Python 依赖
 bash scripts/setup_wsl_helper_deps.sh
 
-# 2) 编辑 secrets/pin_account.json（从 deploy/pin_account.json.example 复制）填入真实 token/proxy
+# 2) 在 Panda 导号：scripts/export_pin_account.py → secrets/pin_account.json（禁止本地注册/手工 token）
 
 # 3) 全栈启动（默认 LOCAL_MODE=full：JWT + IMAGE_ENABLED=1 + web/out UI）
 bash scripts/local_bringup_wsl.sh

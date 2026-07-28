@@ -1,14 +1,21 @@
 # syntax=docker/dockerfile:1
-# Build linux/amd64 gateway binary for panda test (:8013). Never build on panda.
+# Build linux/amd64 gateway + upstream-probe for panda test (:8013 + diagnostics).
+# Never build on panda — only pull from GHCR after CI publish.
 FROM rust:1.85-bookworm AS build
 WORKDIR /src
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libclang-dev clang cmake pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock* ./
 COPY crates ./crates
-RUN cargo build --release -p gateway
+RUN cargo build --release -p gateway -p upstream-probe
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/target/release/gptimage-gateway-rs /usr/local/bin/gptimage-gateway-rs
+COPY --from=build /src/target/release/upstream-probe /usr/local/bin/upstream-probe
 ENV GATEWAY_LISTEN=0.0.0.0:8013
 EXPOSE 8013
 ENTRYPOINT ["/usr/local/bin/gptimage-gateway-rs"]

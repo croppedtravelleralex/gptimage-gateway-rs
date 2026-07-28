@@ -5,6 +5,8 @@ members = [
     "crates/protocol",
     "crates/helper_client",
     "crates/auth",
+    "crates/upstream",
+    "crates/upstream-probe",
 ]
 
 [workspace.package]
@@ -33,3 +35,11 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
 cookie = "0.18"
+wreq = "6.0.0-rc"
+wreq-util = "3.0.0-rc"
+rand = "0.9"
+regex = "1"
+sha3 = "0.10"
+hex = "0.4"
+chrono = { version = "0.4", features = ["clock"] }
+http-body-util = "0.1"
