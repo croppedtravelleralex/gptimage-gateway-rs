@@ -32,10 +32,13 @@ if [[ "$auth_disabled" == "True" || "$auth_disabled" == "true" ]]; then
 else
   if [[ -f "$ROOT/secrets/local_admin_password" ]]; then
     ADMIN_PASS=$(tr -d '\r\n' <"$ROOT/secrets/local_admin_password")
+  elif [[ -f "$ROOT/secrets/gateway.env" ]]; then
+    ADMIN_PASS=$(grep -E '^AUTH_BOOTSTRAP_ADMIN_PASSWORD=' "$ROOT/secrets/gateway.env" | cut -d= -f2- | tr -d '\r\n')
+    ADMIN_USER=$(grep -E '^AUTH_BOOTSTRAP_ADMIN_USER=' "$ROOT/secrets/gateway.env" | cut -d= -f2- | tr -d '\r\n' || echo "$ADMIN_USER")
   else
     ADMIN_PASS="${AUTH_BOOTSTRAP_ADMIN_PASSWORD:-}"
   fi
-  [[ -n "$ADMIN_PASS" ]] || fail "missing secrets/local_admin_password (run local_bringup_wsl.sh first)"
+  [[ -n "$ADMIN_PASS" ]] || fail "missing admin password (secrets/local_admin_password or secrets/gateway.env)"
 
   code=$(curl -s -c "$COOKIE_JAR" -b "$COOKIE_JAR" -o /tmp/gws-login.json -w '%{http_code}' \
     -H 'Content-Type: application/json' \
