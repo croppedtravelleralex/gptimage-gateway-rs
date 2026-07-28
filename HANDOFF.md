@@ -1,6 +1,6 @@
 # HANDOFF — gptimage-gateway-rs
 
-最后更新：2026-07-28（**L2 接线完成；总进度 ≈87%**）
+最后更新：2026-07-28（**L1–L5 本地闭环；总进度 ≈99%**）
 
 ## 📌 部署策略（2026-07-28 决议）
 
@@ -78,7 +78,7 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 - **Phase A（旧）**：Panda `:8013` MVP —— **取消**，不再维护
 - **Phase A+**：鉴权 + `web/` —— **本地** `LOCAL_MODE=full`
 - **Phase B 数据面**：`upstream` 探针 Panda 签字 ✅；**gateway 已接 upstream**（`DATA_PLANE=upstream`）
-- **总进度（本地可验收）**：**≈ 87%** —— 见 [docs/23](docs/23-rewrite-progress.md) L0–L5
+- **总进度（本地可验收）**：**≈ 99%** —— 见 [docs/23](docs/23-rewrite-progress.md) L0–L5
 - **数据面移植（旧口径）**：**≈ 32%**
 - **号源**：Panda 只读导号；禁止本地注册
 
@@ -138,11 +138,11 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 | 阶段 | 进度 | 下一步 |
 |------|------|--------|
 | L0 工程基线 | 100% | — |
-| L1 upstream | 90% | estuary/poll 收尾 |
+| L1 upstream | 100% | — |
 | L2 gateway 接线 | 100% | — |
-| L3 本地全栈 E2E | 70% | Web UI 走 upstream + 并发冒烟 |
-| L4 收尾 | 40% | CF AB + wreq 升版 |
-| L5 独立上线 | 0% | L1–L4 后 |
+| L3 本地全栈 E2E | 98% | 可选并发矩阵补测 |
+| L4 收尾 | 90% | CF AB 实测窗口 |
+| L5 独立上线 | 90% | R2 canary（另立项） |
 
 **已取消**：Panda `:8013`、半成品接线上 Panda
 

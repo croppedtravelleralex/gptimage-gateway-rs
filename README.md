@@ -23,19 +23,20 @@
 
 最后更新：2026-07-28
 
-## 当前状态（2026-07-23 表需对照 HANDOFF 更新）
+## 当前状态（2026-07-28）
 
 | 项 | 状态 |
 |----|------|
-| Rust face `:8013` | ✅ 鉴权 + 对话 + 管理 API（panda 仍跑旧 MVP） |
-| **`crates/upstream/` 数据面** | ✅ **Panda 生图探针签字** |
-| Web UI `web/` | ✅ dashboard |
-| Helper `:19001` | ✅ 文本/SSE 桥接（gateway 出站仍依赖） |
+| **总进度（本地可验收）** | **≈ 99%** — 见 [docs/23](docs/23-rewrite-progress.md) |
+| Rust gateway `:8013` | ✅ 本地 WSL 全栈（JWT + upstream 数据面） |
+| **`crates/upstream/` 数据面** | ✅ chat/image/stream + estuary |
+| Web UI `web/` | ✅ dashboard + `/chat` `/image` |
+| Helper `:19001` | ✅ 可选降级（`UPSTREAM_ONLY=1` 默认跳过） |
 | Phase B fixtures | ✅ 全量 golden 差分 |
-| 生图运行时（gateway 接线） | ⏳ upstream 已通，face 未切 |
-| GHCR + upstream-probe | ✅ publish workflow；Panda pull 待授权 |
+| 生图运行时（gateway 接线） | ✅ `DATA_PLANE=upstream` |
+| GHCR + upstream-probe | ✅ publish workflow |
 | Panda `:8013` MVP | **已退役**（2026-07-28）；`panda_bringup_rust_face.sh` 已禁用 |
-| 生产 `:8012` | **不动** |
+| 生产 `:8012` | **不动**（100% = R2 切流，另立项） |
 
 ## 路线摘要
 
@@ -43,10 +44,10 @@
 A    Rust 编排 + helper              ✅
 A+   鉴权 + Web UI + 简易后端        ✅
 B    协议契约（fixtures/edits/estuary） ✅ 契约层
-     生图/edits/estuary 运行时        ⏸️ 后置
-C    选号 / admission
+     生图/edits/estuary 运行时        ✅ upstream 接线
+C    选号 / admission                ⏸️ 可选后置
 D    RCA / llm_ops
-E    R2 生产 canary（另立项）
+E    R2 生产 canary（另立项）        ⏸️ 100% 门槛
 ```
 
 ## 快速命令
@@ -56,16 +57,14 @@ E    R2 生产 canary（另立项）
 cargo test
 cd web && npm run build
 
-## 本地开发（主路径）
-
-```bash
-bash scripts/local_bringup_wsl.sh          # helper + gateway + UI
-bash scripts/local_smoke_full.sh
+# 本地开发（主路径）
+bash scripts/local_bringup_wsl.sh          # gateway + UI（默认 upstream，无 helper）
+bash scripts/local_smoke_upstream.sh       # chat + capabilities
+STREAM_ENABLED=1 bash scripts/local_smoke_upstream.sh  # + stream chat leg
 cargo run -p upstream-probe --release      # 需 secrets/pin_account.json（Panda 导号）
 ```
 
 Panda `:8013` MVP **已停服**；`scripts/panda_bringup_rust_face.sh` 已禁用。完整后**独立上线**，不替换现网 `:8012`。
-```
 
 本地编 linux 二进制：
 

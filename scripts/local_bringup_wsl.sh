@@ -245,12 +245,13 @@ if ! curl -fsS "http://${GATEWAY_LISTEN}/health"; then
   exit 1
 fi
 echo
-echo "LOCAL_MODE=$LOCAL_MODE DATA_PLANE=$DATA_PLANE UPSTREAM_ONLY=$UPSTREAM_ONLY GATEWAY_LISTEN=$GATEWAY_LISTEN IMAGE_ENABLED=$IMAGE_ENABLED AUTH_DISABLE=$AUTH_DISABLE"
+echo "LOCAL_MODE=$LOCAL_MODE DATA_PLANE=$DATA_PLANE UPSTREAM_ONLY=$UPSTREAM_ONLY GATEWAY_LISTEN=$GATEWAY_LISTEN IMAGE_ENABLED=$IMAGE_ENABLED STREAM_ENABLED=${STREAM_ENABLED:-0} AUTH_DISABLE=$AUTH_DISABLE"
 if [[ "$LOCAL_MODE" == "full" ]]; then
   echo "Web UI: http://${GATEWAY_LISTEN}/"
   echo "Admin:  ${AUTH_BOOTSTRAP_ADMIN_USER:-admin} / (see secrets/local_admin_password)"
   if [[ "$DATA_PLANE" == "upstream" ]]; then
     echo "Smoke:  bash scripts/local_smoke_upstream.sh"
+    echo "        STREAM_ENABLED=1 bash scripts/local_smoke_upstream.sh  # + stream chat leg"
     echo "        UPSTREAM_ONLY=1 bash scripts/local_bringup_wsl.sh  # gateway only, no helper"
   else
     echo "Smoke:  bash scripts/local_smoke_full.sh"

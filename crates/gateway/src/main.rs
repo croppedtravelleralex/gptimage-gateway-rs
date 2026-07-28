@@ -394,12 +394,35 @@ async fn chat_completions(
 
     if req.stream {
         if st.data_plane == DataPlane::Upstream {
-            return err(
-                StatusCode::NOT_IMPLEMENTED,
-                "streaming chat is not supported in upstream data plane (set DATA_PLANE=helper or omit stream=true)",
-                "stream_unsupported_upstream",
-                Some("gate"),
-            );
+            return match upstream_face::run_text_stream(&account, prompt, model).await {
+                Ok(stream) => {
+                    let stream = stream.map(|chunk| chunk.map_err(std::io::Error::other));
+                    match Response::builder()
+                        .status(StatusCode::OK)
+                        .header(header::CONTENT_TYPE, "text/event-stream")
+                        .header(header::CACHE_CONTROL, "no-cache")
+                        .header(header::CONNECTION, "keep-alive")
+                        .body(Body::from_stream(stream))
+                    {
+                        Ok(r) => r,
+                        Err(e) => err(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            e.to_string(),
+                            "stream_build_failed",
+                            Some("self"),
+                        ),
+                    }
+                }
+                Err(e) => {
+                    error!(error=%e, "upstream text stream failed");
+                    err(
+                        StatusCode::BAD_GATEWAY,
+                        e.to_string(),
+                        "text_stream_failed",
+                        Some("upstream"),
+                    )
+                }
+            };
         }
         let bridge_req = TextRunRequest {
             account,

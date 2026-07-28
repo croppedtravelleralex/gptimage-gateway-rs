@@ -1,0 +1,36 @@
+# Independent upstream-only deployment — single gateway, no Python helper.
+#
+# Target: production host with host networking (same pattern as chatgpt2api-local :8012).
+# This stack does NOT touch :8012 — pick a different listen port (default 8014).
+#
+# Prep on host:
+#   1. mkdir -p /root/gptimage-gateway-rs/secrets
+#   2. place pin_account.json at secrets/pin_account.json (not in git)
+#   3. optional: secrets/gateway.env for JWT / auth overrides
+#
+# Bring up:
+#   docker compose -f deploy/independent-compose.yml pull
+#   docker compose -f deploy/independent-compose.yml up -d
+#
+# Rollback:
+#   docker compose -f deploy/independent-compose.yml down
+#   (production :8012 remains untouched)
+#
+# Env contract:
+#   DATA_PLANE=upstream   — Rust data plane (no helper)
+#   IMAGE_ENABLED=1       — /v1/images/generations via upstream
+#   PIN_ACCOUNT_FILE      — mounted read-only from secrets/
+
+services:
+  gateway:
+    image: ghcr.io/croppedtravelleralex/gptimage-gateway-rs:latest
+    network_mode: host
+    environment:
+      - DATA_PLANE=upstream
+      - IMAGE_ENABLED=1
+      - GATEWAY_LISTEN=0.0.0.0:8014
+      - PIN_ACCOUNT_FILE=/secrets/pin_account.json
+      - RUST_LOG=info
+    volumes:
+      - /root/gptimage-gateway-rs/secrets/pin_account.json:/secrets/pin_account.json:ro
+    restart: unless-stopped

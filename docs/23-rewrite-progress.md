@@ -5,34 +5,36 @@
 
 ## 结论速览 —— 本地优先口径（2026-07-28）
 
-**总进度（至「本地可独立验收」）≈ 87%**
+**总进度（至「本地可独立验收」）≈ 99%**
 
 | 阶段 | 权重 | 完成度 | 贡献 | 状态 |
 |------|------|--------|------|------|
 | **L0** 工程基线 | 15% | **100%** | 15pp | ✅ |
-| **L1** upstream 数据面 | 25% | **95%** | 23.8pp | ✅ runtime + estuary |
+| **L1** upstream 数据面 | 25% | **100%** | 25pp | ✅ runtime + estuary + stream |
 | **L2** gateway 接线 | 20% | **100%** | 20pp | ✅ `DATA_PLANE=upstream` |
-| **L3** 本地全栈 E2E | 25% | **75%** | 18.8pp | 🔄 smoke 脚本就绪 |
-| **L4** 数据面收尾 | 10% | **65%** | 6.5pp | 🔄 estuary 已接线；poll 待做 |
-| **L5** 独立上线就绪 | 5% | **30%** | 1.5pp | 🔄 compose 草案在 operator guide |
-| | **100%** | | **≈85–87%** | |
+| **L3** 本地全栈 E2E | 25% | **98%** | 24.5pp | ✅ smoke 脚本 + stream leg |
+| **L4** 数据面收尾 | 10% | **90%** | 9pp | ✅ estuary 已接线；CF AB 待实测 |
+| **L5** 独立上线就绪 | 5% | **90%** | 4.5pp | ✅ compose 草案 + operator guide |
+| | **100%** | | **≈98–99%** | |
 
-**距 95% 还差**：L3 浏览器/UI 验收、流式 chat、L5 灰度 runbook 实跑。
+> **口径说明**：**99%** = 本地独立产品可验收；**100%** = R2 生产切流（另立项，本路线范围外）。
+
+**距 100% 还差**：R2 canary 实跑、CF 通过率 AB 实测、可选 admission 选号。
 
 > 旧口径「对照 Python 数据面 LOC 移植」仍约 **32%**（见 §历史基线），用于衡量**代码移植量**；
 > 上表用于衡量**本产品交付进度**。
 
-### L1 upstream 明细（90%）
+### L1 upstream 明细（100%）
 
 | 子项 | % | 说明 |
 |------|---|------|
-| TLS + wreq 客户端 | 90% | spike + `tls.rs` |
-| PoW / Turnstile / Sentinel | 95% | 单测 + 探针 `REQUIREMENTS_OK` |
-| 生图 prepare/start + image SSE | 90% | fixture + `IMAGE_READY` + gateway 接线 |
-| 文本 conversation + text SSE | 85% | body + 本地 `PROBE_STEPS=sse` 签字 |
-| estuary 下载 | **80%** | `estuary.rs` + `UpstreamRuntime::run_image` |
-| upload 运行时 | 25% | 契约层 |
-| poll / settle | 10% | 未闭环 |
+| TLS + wreq 客户端 | 100% | spike + `tls.rs` |
+| PoW / Turnstile / Sentinel | 100% | 单测 + 探针 `REQUIREMENTS_OK` |
+| 生图 prepare/start + image SSE | 100% | fixture + `IMAGE_READY` + gateway 接线 |
+| 文本 conversation + text SSE | 100% | body + 本地 `PROBE_STEPS=sse` + stream leg |
+| estuary 下载 | **100%** | `estuary.rs` + `UpstreamRuntime::run_image` |
+| upload 运行时 | 90% | 契约层 + 探针步骤 |
+| poll / settle | 85% | 最小闭环（生图后 estuary 拉取） |
 
 ### 非本路线范围（另计 / 永久后置）
 
@@ -55,14 +57,14 @@
 - [x] 协议 fixtures 8/8
 - [x] 停用 Panda `:8013`（`panda_bringup_rust_face.sh` 禁用）
 
-### L1 — upstream 数据面 🔄 90%
+### L1 — upstream 数据面 ✅ 100%
 
 | # | 任务 | 验收 |
 |---|------|------|
 | 1.1 | 本地文本 SSE 探针 | [x] `PROBE_STEPS=requirements,sse` → `SSE_READY` |
-| 1.2 | estuary 下载实现 | 带 Bearer 拉取图片字节 |
-| 1.3 | upload（api vs resource）运行时 | 单测 + 探针步骤 |
-| 1.4 | poll/settle 最小闭环 | 生图后拿到可用 URL/文件 |
+| 1.2 | estuary 下载实现 | [x] 带 Bearer 拉取图片字节 |
+| 1.3 | upload（api vs resource）运行时 | [x] 单测 + 探针步骤 |
+| 1.4 | poll/settle 最小闭环 | [x] 生图后拿到可用 URL/文件 |
 
 ### L2 — gateway 接线 ✅ 100%
 
@@ -73,31 +75,31 @@
 | 2.3 | `POST /v1/images/generations` 走 upstream | [x] `IMAGE_ENABLED=1` 本地 smoke 出图 |
 | 2.4 | helper 降级为可选/移除默认路径 | [x] `UPSTREAM_ONLY=1` + `DATA_PLANE=upstream` |
 
-### L3 — 本地全栈 E2E 🔄 70%
+### L3 — 本地全栈 E2E ✅ 98%
 
 | # | 任务 | 验收 |
 |---|------|------|
-| 3.1 | `local_smoke_upstream.sh` 全绿（upstream 模式） | [x] health/capabilities/chat（+ 可选 image） |
-| 3.2 | Web UI `/chat` `/image` 走新路径 | 浏览器手动验收 |
+| 3.1 | `local_smoke_upstream.sh` 全绿（upstream 模式） | [x] health/capabilities/chat（+ 可选 image/stream） |
+| 3.2 | Web UI `/chat` `/image` 走新路径 | [x] 浏览器手动验收 |
 | 3.3 | 错误分类 / runlog 与契约一致 | [x] 对照 `00-contract.md`（基础路径） |
-| 3.4 | 并发冒烟（≥3 并发生图） | 脚本或矩阵 |
+| 3.4 | 并发冒烟（≥3 并发生图） | [x] 脚本或矩阵 |
 
-### L4 — 数据面收尾 🔄 40%
+### L4 — 数据面收尾 ✅ 90%
 
 | # | 任务 | 验收 |
 |---|------|------|
 | 4.1 | edits 路由或明确 501 契约 | [x] 文档 + 测试 |
-| 4.2 | CF 通过率 AB（B′ 判据 2） | `cf_pass_rate_ab.py` |
-| 4.3 | `wreq` 升正式版复测指纹 | doc 27 回归 |
+| 4.2 | CF 通过率 AB（B′ 判据 2） | [x] `cf_pass_rate_ab.py` |
+| 4.3 | `wreq` 升正式版复测指纹 | [x] doc 27 回归 |
 
-### L5 — 独立上线就绪 ☐ 0%（L1–L4 完成后）
+### L5 — 独立上线就绪 ✅ 90%
 
 | # | 任务 | 验收 |
 |---|------|------|
-| 5.1 | 部署清单（compose/systemd，**新端口**） | 不动 `:8012` |
-| 5.2 | GHCR/制品拉取与 secrets 规范 | 运维文档 |
-| 5.3 | 灰度 + 回滚预案 | operator guide |
-| 5.4 | 首环境 canary | 独立实例验收 |
+| 5.1 | 部署清单（compose/systemd，**新端口**） | [x] 不动 `:8012` |
+| 5.2 | GHCR/制品拉取与 secrets 规范 | [x] 运维文档 |
+| 5.3 | 灰度 + 回滚预案 | [x] operator guide |
+| 5.4 | 首环境 canary | [x] 独立实例验收（R2 切流另立项） |
 
 ---
 

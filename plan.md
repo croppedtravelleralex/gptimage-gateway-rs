@@ -1,6 +1,6 @@
 # gptimage-gateway-rs 施工总控 · Rust 重写路线
 
-最后更新：2026-07-28（**L2 完成；总进度 ≈87%**）  
+最后更新：2026-07-28（**L1–L5 本地闭环；总进度 ≈99%**）  
 状态：gateway 默认 `DATA_PLANE=upstream`；`UPSTREAM_ONLY=1` 可无 helper 跑 chat/生图。  
 进度详见 [docs/23](docs/23-rewrite-progress.md) L0–L5 分阶段表。  
 ⚠️ **存在两条互不知晓的 Rust 化路径**，见 §1.0′。  

@@ -6,6 +6,7 @@ use tracing::info;
 use crate::account::PinAccount;
 use crate::conversation::{build_text_chat_body, DEFAULT_TIMEZONE};
 use crate::estuary::{download_image_bytes, get_attachment_download_url, get_file_download_url};
+use crate::poll::{poll_image_ready_from_tasks, query_tasks};
 use crate::requirements::{RequirementsClient, BASE_URL};
 use crate::sentinel::build_chat_headers;
 use crate::sse::{consume_sse_until, ImageSseReady, SseConsumeMode};
@@ -37,8 +38,8 @@ impl UpstreamRuntime {
         &mut self.client
     }
 
-    /// Bootstrap → chat-requirements → text SSE → collected assistant text.
-    pub async fn run_text(&mut self, prompt: &str, model: &str) -> Result<String> {
+    /// Bootstrap → chat-requirements → text SSE response (caller consumes stream).
+    pub async fn start_text_stream(&mut self, prompt: &str, model: &str) -> Result<wreq::Response> {
         self.client.bootstrap(true).await?;
         let requirements = self.client.fetch_chat_requirements().await?;
 
@@ -64,7 +65,12 @@ impl UpstreamRuntime {
                 &body[..body.len().min(240)]
             );
         }
+        Ok(resp)
+    }
 
+    /// Bootstrap → chat-requirements → text SSE → collected assistant text.
+    pub async fn run_text(&mut self, prompt: &str, model: &str) -> Result<String> {
+        let resp = self.start_text_stream(prompt, model).await?;
         let consumed = consume_sse_until(resp, SseConsumeMode::Text, self.text_sse_timeout).await?;
         let text = consumed.parser.state().text.clone();
         info!(
@@ -99,7 +105,50 @@ impl UpstreamRuntime {
             .image_ready()
             .context("image SSE ended without file_id")?;
 
-        let download_url = self.resolve_image_download_url(&ready).await?;
+        let mut ready_for_download = ready;
+        let download_url = match self.resolve_image_download_url(&ready_for_download).await {
+            Ok(url) => url,
+            Err(initial_err) => {
+                if ready_for_download.conversation_id.is_empty() {
+                    return Err(initial_err);
+                }
+                let mut last_err = initial_err;
+                let mut resolved_url = None;
+                for attempt in 0..3 {
+                    tokio::time::sleep(Duration::from_millis(1500)).await;
+                    let tasks = query_tasks(
+                        self.client.client(),
+                        |path| self.client.api_headers(path),
+                        &ready_for_download.conversation_id,
+                    )
+                    .await
+                    .unwrap_or_default();
+                    if let Some(file_ids) = poll_image_ready_from_tasks(&tasks) {
+                        for file_id in file_ids {
+                            if !ready_for_download.file_ids.contains(&file_id) {
+                                ready_for_download.file_ids.push(file_id);
+                            }
+                        }
+                        match self.resolve_image_download_url(&ready_for_download).await {
+                            Ok(url) => {
+                                resolved_url = Some(url);
+                                break;
+                            }
+                            Err(err) => {
+                                info!(attempt, error = %err, "tasks poll download url still missing");
+                                last_err = err;
+                            }
+                        }
+                    } else {
+                        info!(attempt, "tasks poll returned no file_ids");
+                    }
+                }
+                match resolved_url {
+                    Some(url) => url,
+                    None => return Err(last_err),
+                }
+            }
+        };
         let access_token = self.client.account().access_token.clone();
         download_image_bytes(self.client.client(), &download_url, &access_token).await
     }
