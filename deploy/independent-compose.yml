@@ -1,24 +1,13 @@
 # Independent upstream-only deployment — single gateway, no Python helper.
 #
-# Target: production host with host networking (same pattern as chatgpt2api-local :8012).
-# This stack does NOT touch :8012 — pick a different listen port (default 8014).
+# Target: panda host :8014 — does NOT touch production :8012.
 #
-# Prep on host:
-#   1. mkdir -p /root/gptimage-gateway-rs/secrets
-#   2. cp deploy/pin_account.json.example secrets/pin_account.json && edit token/proxy
-#   3. cp deploy/gateway.env.example secrets/gateway.env && set JWT + admin password
-#
-# Bring up:
-#   docker compose -f deploy/independent-compose.yml pull
-#   docker compose -f deploy/independent-compose.yml up -d
-#
-# Acceptance:
-#   GATEWAY_LISTEN=127.0.0.1:8014 IMAGE_ENABLED=1 bash scripts/independent_acceptance.sh
-#   Browser: http://<host>:8014/showcase
+# Prep:
+#   bash scripts/panda_sync_gptimage_db.sh
+#   bash scripts/panda_deploy_independent.sh
 #
 # Rollback:
 #   docker compose -f deploy/independent-compose.yml down
-#   (production :8012 remains untouched)
 
 services:
   gateway:
@@ -28,4 +17,6 @@ services:
       - /root/gptimage-gateway-rs/secrets/gateway.env
     volumes:
       - /root/gptimage-gateway-rs/secrets/pin_account.json:/secrets/pin_account.json:ro
+      - /root/gptimage-gateway-rs/secrets/accounts_pool.json:/secrets/accounts_pool.json:ro
+      - /root/gptimage-gateway-rs/data:/data
     restart: unless-stopped

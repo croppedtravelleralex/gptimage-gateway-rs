@@ -1,0 +1,102 @@
+name: Deploy independent gateway to Panda
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_smoke:
+        description: Skip image/stream smoke (health only)
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    name: Stream GHCR image to Panda and bring up :8014
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull gateway image
+        run: docker pull ghcr.io/croppedtravelleralex/gptimage-gateway-rs:latest
+
+      - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.PANDA_SSH_KEY }}
+        run: |
+          if [[ -z "$SSH_KEY" ]]; then
+            echo "::error::Missing repo secret PANDA_SSH_KEY"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/panda
+          chmod 600 ~/.ssh/panda
+          ssh-keyscan -H "$(echo '${{ secrets.PANDA_SSH_HOST }}' | cut -d@ -f2)" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Git pull on Panda
+        env:
+          PANDA_HOST: ${{ secrets.PANDA_SSH_HOST }}
+        run: |
+          ssh -i ~/.ssh/panda -o StrictHostKeyChecking=accept-new "$PANDA_HOST" \
+            'cd /root/gptimage-gateway-rs && git fetch origin main && git reset --hard origin/main'
+
+      - name: Stream image to Panda
+        env:
+          PANDA_HOST: ${{ secrets.PANDA_SSH_HOST }}
+        run: |
+          docker save ghcr.io/croppedtravelleralex/gptimage-gateway-rs:latest | gzip | \
+            ssh -i ~/.ssh/panda "$PANDA_HOST" 'gunzip | docker load'
+
+      - name: Deploy and smoke
+        env:
+          PANDA_HOST: ${{ secrets.PANDA_SSH_HOST }}
+          SKIP_SMOKE: ${{ inputs.skip_smoke }}
+        run: |
+          ssh -i ~/.ssh/panda "$PANDA_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd /root/gptimage-gateway-rs
+          bash scripts/panda_sync_gptimage_db.sh
+          ACCOUNTS_DB=data/gptimage/accounts.db OUT_PATH=secrets/pin_account.json \
+            python3 scripts/export_pin_account.py
+          ACCOUNTS_DB=data/gptimage/accounts.db OUT_PATH=secrets/accounts_pool.json LIMIT=20 \
+            python3 scripts/export_accounts_pool.py
+          chmod 600 secrets/pin_account.json secrets/accounts_pool.json
+          if [[ ! -f secrets/gateway.env ]]; then
+            JWT=$(openssl rand -hex 32)
+            ADMIN_PASS="panda-admin-$(openssl rand -hex 4)"
+            cat >secrets/gateway.env <<EOF
+          DATA_PLANE=upstream
+          IMAGE_ENABLED=1
+          GATEWAY_LISTEN=0.0.0.0:8014
+          PIN_ACCOUNT_FILE=/secrets/pin_account.json
+          ACCOUNTS_FILE=/secrets/accounts_pool.json
+          AUTH_DB_PATH=/data/auth.db
+          RUST_LOG=info
+          AUTH_DISABLE=0
+          AUTH_MODE=jwt
+          AUTH_JWT_SECRET=$JWT
+          AUTH_BOOTSTRAP_ADMIN_USER=admin
+          AUTH_BOOTSTRAP_ADMIN_PASSWORD=$ADMIN_PASS
+          GATEWAY_STATIC_DIR=/var/www/gateway-ui
+          EOF
+            chmod 600 secrets/gateway.env
+          fi
+          mkdir -p data
+          docker compose -f deploy/independent-compose.yml down 2>/dev/null || true
+          docker compose -f deploy/independent-compose.yml up -d
+          sleep 5
+          curl -fsS http://127.0.0.1:8014/health
+          REMOTE

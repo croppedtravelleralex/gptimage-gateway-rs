@@ -1,0 +1,5 @@
+# GitHub PAT with read:packages — NOT in git.
+# Create: GitHub → Settings → Developer settings → PAT → read:packages
+# On panda:
+#   echo 'ghp_xxxx' > /root/gptimage-gateway-rs/secrets/ghcr_token
+#   chmod 600 /root/gptimage-gateway-rs/secrets/ghcr_token
