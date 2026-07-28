@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build linux/amd64 gateway + upstream-probe for panda test (:8013 + diagnostics).
 # Never build on panda — only pull from GHCR after CI publish.
-FROM rust:1.85-bookworm AS build
+FROM rust:1.88-bookworm AS build
 WORKDIR /src
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libclang-dev clang cmake pkg-config \
