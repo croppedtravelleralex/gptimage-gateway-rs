@@ -35,7 +35,7 @@ ACCOUNTS_DB="$ACCOUNTS_DB" OUT_PATH="$SECRETS/accounts_pool.json" LIMIT="${ACCOU
   python3 "$ROOT/scripts/export_accounts_pool.py"
 chmod 600 "$SECRETS/pin_account.json" "$SECRETS/accounts_pool.json"
 
-echo "==> [3/7] ensure gateway.env"
+echo "==> [3/7] ensure gateway.env (container paths)"
 ENV_FILE="$SECRETS/gateway.env"
 if [[ ! -f "$ENV_FILE" ]]; then
   JWT="$(openssl rand -hex 32)"
@@ -58,7 +58,12 @@ EOF
   chmod 600 "$ENV_FILE"
   echo "created $ENV_FILE (admin password in file)"
 else
-  echo "reuse $ENV_FILE"
+  # migrate host-mode paths from earlier bringup
+  sed -i 's|^PIN_ACCOUNT_FILE=.*|PIN_ACCOUNT_FILE=/secrets/pin_account.json|' "$ENV_FILE"
+  sed -i 's|^ACCOUNTS_FILE=.*|ACCOUNTS_FILE=/secrets/accounts_pool.json|' "$ENV_FILE"
+  sed -i 's|^AUTH_DB_PATH=.*|AUTH_DB_PATH=/data/auth.db|' "$ENV_FILE"
+  sed -i 's|^GATEWAY_STATIC_DIR=.*|GATEWAY_STATIC_DIR=/var/www/gateway-ui|' "$ENV_FILE"
+  echo "reuse $ENV_FILE (normalized for compose)"
 fi
 
 echo "==> [4/7] ghcr login"
