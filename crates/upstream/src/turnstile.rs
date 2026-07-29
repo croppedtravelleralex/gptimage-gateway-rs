@@ -254,12 +254,12 @@ impl<'a> Vm<'a> {
                 let val = self.get_slot(&args[1]);
                 self.set_slot(&args[0], val);
             }
-            13 | 23
-                if args.len() >= 2
-                    && self.slot_defined_not_null(&args[0])
-                    && let Some(nested) = as_handler_op(&self.get_slot(&args[1])) =>
-            {
-                self.call_handler(nested, &args[2..]);
+            13 | 23 => {
+                if args.len() >= 2 && self.slot_defined_not_null(&args[0]) {
+                    if let Some(nested) = as_handler_op(&self.get_slot(&args[1])) {
+                        self.call_handler(nested, &args[2..]);
+                    }
+                }
             }
             14 if args.len() >= 2 => {
                 if let Value::String(s) = self.get_slot(&args[1]) {
