@@ -101,6 +101,14 @@
 | 5.3 | 灰度 + 回滚预案 | [x] `docs/32-independent-deploy.md` |
 | 5.4 | 验收脚本 + UI 看板 | [x] `scripts/independent_acceptance.sh` + `/showcase` |
 
+### L5+ 后续（未开工）
+
+| # | 任务 | 验收 |
+|---|------|------|
+| 5.5 | 子域名公网入口 | `rs.gptimage.relai.asia` Nginx → `:8014`；主域 `gptimage.relai.asia` **不动** |
+| 5.6 | 生图下行优化 | API 返回 URL 而非全量 b64，减轻 Panda 30Mbps 上行 |
+| 5.7 | R2 / CDN（可选） | 多用户或持久化图床时再上；见 [32](32-independent-deploy.md) §6 |
+
 ---
 
 ## 历史里程碑（2026-07-28 前）

@@ -142,7 +142,18 @@ chrome124 / chrome131）。详见 [docs/27](docs/27-tls-fingerprint-spike-202607
 | L2 gateway 接线 | 100% | — |
 | L3 本地全栈 E2E | 100% | — |
 | L4 收尾 | 100% | — |
-| L5 独立上线 | 100% | R2 canary（另立项） |
+| L5 独立上线 | 100% | 见 **P2 后续**（子域名 / 公网入口） |
+
+**P2 后续（Panda `:8014` 已 Docker 部署 ✅）**
+
+| # | 事项 | 说明 | 状态 |
+|---|------|------|------|
+| P2.1 | **子域名反代** | `rs.gptimage.relai.asia` → `127.0.0.1:8014`（**推荐子域名**，不用主域子路径） | ☐ 待做 |
+| P2.2 | Nginx + TLS | 证书、JWT 鉴权保留；**不改** `gptimage.relai.asia` → `:8012` 生产路由 | ☐ 待做 |
+| P2.3 | 生图 egress 优化 | 优先返回 estuary URL / 302，少走 Panda 上行；R2 见 [docs/32](docs/32-independent-deploy.md) §6 | ☐ 评估 |
+| P2.4 | R2 生产切流 | 替换 `:8012` —— **另立项**，非本波次 | — |
+
+详见 [docs/32-independent-deploy.md](docs/32-independent-deploy.md) §5、[docs/33-panda-deploy-20260728.md](docs/33-panda-deploy-20260728.md)。
 
 **已取消**：Panda `:8013`、半成品接线上 Panda
 

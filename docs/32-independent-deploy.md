@@ -108,7 +108,49 @@ docker compose -f deploy/independent-compose.yml up -d
 
 切流到独立 Rust 面是 **R2** 决策，不在本清单范围内。
 
-## 5. 故障排查
+## 5. 后续：子域名公网入口（待做）
+
+> **推荐**：`rs.gptimage.relai.asia` → `127.0.0.1:8014`  
+> **不推荐**：`gptimage.relai.asia/showcase` 子路径（Next 静态导出需改 `basePath`，易 404）。
+
+| # | 任务 | 说明 |
+|---|------|------|
+| 5.1 | DNS | `rs.gptimage.relai.asia` A/AAAA → Panda |
+| 5.2 | Nginx | `proxy_pass http://127.0.0.1:8014`；保留 `X-Forwarded-*` |
+| 5.3 | TLS | 证书（可与主域同 wildcard 或独立） |
+| 5.4 | 红线 | **不得**改 `gptimage.relai.asia` → `:8012` 的现有 `location` |
+| 5.5 | 鉴权 | 保持 JWT；验收看板不对公网裸奔 |
+
+```nginx
+# 示例（仅 rs 子域，不动主站 :8012）
+server {
+    server_name rs.gptimage.relai.asia;
+    location / {
+        proxy_pass http://127.0.0.1:8014;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+验收：`https://rs.gptimage.relai.asia/showcase` 可登录；`https://gptimage.relai.asia` 行为不变。
+
+## 6. Panda 上行带宽与 R2（评估）
+
+Panda 上行约 **30Mbps（~3.75MB/s）**。当前生图 API 默认 `b64_json`，**整张图经 Panda 上行回传客户端**，并发稍高即成为瓶颈。
+
+| 阶段 | 建议 |
+|------|------|
+| **现在（内测/验收）** | **不必上 R2**。1–3 人验收、偶发生图，30Mbps 够用 |
+| **短期优化（优先于 R2）** | API 增加 `url` 响应：返回 estuary 下载链或 302，让客户端直连 CDN，**不经 Panda 上行传图** |
+| **中期（多用户/持久化）** | 再评估 **CF R2**：生图后上传 R2，公网用 R2/CF CDN 域名；Panda 只走 API 元数据 |
+| **静态 UI** | 已 bake 进镜像；子域反代即可，**不必**为 UI 单独上 R2 |
+
+R2 引入成本：上传逻辑、生命周期、鉴权 URL、合规（图床留存）。**验收阶段 ROI 不高**；等子域名入口稳定、并发上来后再立项。
+
+## 7. 故障排查
 
 | 现象 | 检查 |
 |------|------|

@@ -60,5 +60,7 @@ GATEWAY_LISTEN=127.0.0.1:8014 IMAGE_ENABLED=1 STREAM_ENABLED=1 \
 
 ## 待办
 
-- [ ] Panda 配置 `secrets/ghcr_token` → 切回 `docker compose` 正式链路
-- [ ] 可选：GitHub Actions `deploy-panda.yml` + `PANDA_SSH_KEY` secret
+- [ ] **P2.1** 子域名 `rs.gptimage.relai.asia` → Nginx → `:8014`（见 [32-independent-deploy.md](32-independent-deploy.md) §5）
+- [ ] **P2.2** 生图 API 支持 `url` 响应，减轻 Panda 30Mbps 上行
+- [ ] 可选：GHCR 包长期私有 + `secrets/ghcr_token`（已配置则可忽略）
+- [ ] R2 canary 切流 `:8012` —— **另立项**
