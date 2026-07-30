@@ -185,6 +185,8 @@ RSS −82~93% / 稳态 CPU −85~95% / 上下文切换 −99%+ / 镜像 −96% /
 | RCA / llm_ops 对齐 | ⏳ | Phase D |
 | 纯 rustls 直连上游 | ❌ | 未证明前禁止 |
 | 生产 Nginx/`8012` cutover | ❌ | Phase E / R2 |
+| 子域名 `rs.gptimage.relai.asia` → `:8014` | ☐ | **P2 后续**，见 [docs/32](docs/32-independent-deploy.md) §5 |
+| 生图 egress（url 响应 / R2） | ☐ | 验收后评估，见 [docs/32](docs/32-independent-deploy.md) §6 |
 
 ### 1.3 历史验证（Phase A 生图路径，保留记录）
 

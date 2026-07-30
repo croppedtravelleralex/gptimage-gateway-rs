@@ -1,0 +1,12 @@
+# Fast local packaging when release binary + web/out already built (not for CI).
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY target/release/gptimage-gateway-rs /usr/local/bin/gptimage-gateway-rs
+COPY target/release/upstream-probe /usr/local/bin/upstream-probe
+COPY web/out /var/www/gateway-ui
+ENV GATEWAY_LISTEN=0.0.0.0:8013
+ENV GATEWAY_STATIC_DIR=/var/www/gateway-ui
+EXPOSE 8013
+ENTRYPOINT ["/usr/local/bin/gptimage-gateway-rs"]
