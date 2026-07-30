@@ -37,6 +37,7 @@ use protocol::{
 };
 use serde_json::{json, Value};
 use state::AppState;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -326,6 +327,85 @@ async fn resolve_account(
     ))
 }
 
+/// Admin image requests may try multiple pool accounts when upstream SSE fails.
+async fn collect_image_accounts(
+    st: &AppState,
+    preferred: Option<String>,
+    is_admin: bool,
+) -> Result<Vec<PinAccount>, Response> {
+    let mut accounts = Vec::new();
+    let mut seen = HashSet::new();
+
+    match resolve_account(st, preferred.clone(), is_admin).await {
+        Ok(acc) => {
+            seen.insert(acc.email.to_lowercase());
+            accounts.push(acc);
+        }
+        Err(r) if !is_admin => return Err(r),
+        Err(_) => {}
+    }
+
+    if is_admin {
+        if let Ok(list) = st.helper.list_candidates(30).await {
+            let mut guard = st.accounts.lock().await;
+            for a in list {
+                guard.insert(a.email.to_lowercase(), a.to_pin());
+            }
+        }
+        let guard = st.accounts.lock().await;
+        let mut keys: Vec<_> = guard.keys().cloned().collect();
+        keys.sort();
+        for key in keys {
+            if seen.insert(key.clone()) {
+                if let Some(acc) = guard.get(&key) {
+                    accounts.push(acc.clone());
+                }
+            }
+        }
+    }
+
+    if accounts.is_empty() {
+        return Err(err(
+            StatusCode::NOT_FOUND,
+            "no accounts available for image generation",
+            "account_not_found",
+            Some("client"),
+        ));
+    }
+    Ok(accounts)
+}
+
+fn upstream_image_retryable(err: &anyhow::Error) -> bool {
+    let msg = err.to_string().to_lowercase();
+    msg.contains("file_id predicate")
+        || msg.contains("sse ended")
+        || msg.contains("image sse ended")
+        || msg.contains("upstream_unreachable")
+}
+
+async fn run_upstream_image(
+    account: &PinAccount,
+    prompt: String,
+    model: String,
+) -> Result<helper_client::BridgeOk, anyhow::Error> {
+    upstream_face::run_image(account, prompt, model)
+        .await
+        .map(|bytes| {
+            let b64 = BASE64.encode(bytes);
+            helper_client::BridgeOk {
+                ok: true,
+                content: None,
+                b64_json: Some(b64),
+                conversation_id: None,
+                fault: None,
+                error: None,
+                elapsed_ms: None,
+                raw: None,
+                quota: None,
+            }
+        })
+}
+
 async fn quota_refresh(
     State(st): State<Arc<AppState>>,
     user: auth_routes::AuthUser,
@@ -563,11 +643,14 @@ async fn image_generations(
         );
     }
 
-    let account =
-        match resolve_account(&st, preferred_email(&headers), user.claims.role.is_admin()).await {
-            Ok(a) => a,
+    let is_admin = user.claims.role.is_admin();
+    let preferred = preferred_email(&headers);
+    let candidates =
+        match collect_image_accounts(&st, preferred, is_admin).await {
+            Ok(c) => c,
             Err(r) => return r,
         };
+    let account = candidates[0].clone();
 
     let permit = match st.image_sem.clone().acquire_owned().await {
         Ok(p) => p,
@@ -629,33 +712,57 @@ async fn image_generations(
     }
 
     let t0 = Instant::now();
-    let result: Result<helper_client::BridgeOk, anyhow::Error> =
-        if st.data_plane == DataPlane::Upstream {
-            upstream_face::run_image(&account, req.prompt.clone(), req.model.clone())
-                .await
-                .map(|bytes| {
-                    let b64 = BASE64.encode(bytes);
-                    helper_client::BridgeOk {
-                        ok: true,
-                        content: None,
-                        b64_json: Some(b64),
-                        conversation_id: None,
-                        fault: None,
-                        error: None,
-                        elapsed_ms: None,
-                        raw: None,
-                        quota: None,
-                    }
-                })
-        } else {
-            let bridge_req = ImageRunRequest {
-                account: account.clone(),
-                prompt: req.prompt.clone(),
-                model: req.model.clone(),
-                size: req.size.clone(),
+    let max_attempts = if is_admin && st.data_plane == DataPlane::Upstream {
+        candidates.len().min(5)
+    } else {
+        1
+    };
+    let mut result: Result<helper_client::BridgeOk, anyhow::Error> =
+        Err(anyhow::anyhow!("image generation not attempted"));
+    let mut used_account = account.clone();
+
+    for (i, cand) in candidates.iter().take(max_attempts).enumerate() {
+        used_account = cand.clone();
+        let attempt: Result<helper_client::BridgeOk, anyhow::Error> =
+            if st.data_plane == DataPlane::Upstream {
+                info!(email=%cand.email, attempt=i + 1, max_attempts, "upstream image attempt");
+                run_upstream_image(cand, req.prompt.clone(), req.model.clone()).await
+            } else {
+                let bridge_req = ImageRunRequest {
+                    account: cand.clone(),
+                    prompt: req.prompt.clone(),
+                    model: req.model.clone(),
+                    size: req.size.clone(),
+                };
+                st.helper.run_image(&bridge_req).await.map_err(|e| e.into())
             };
-            st.helper.run_image(&bridge_req).await
-        };
+
+        match &attempt {
+            Ok(r) if r.ok => {
+                result = attempt;
+                break;
+            }
+            Err(e) if is_admin
+                && st.data_plane == DataPlane::Upstream
+                && upstream_image_retryable(e)
+                && i + 1 < max_attempts =>
+            {
+                warn!(
+                    email=%cand.email,
+                    attempt=i + 1,
+                    error=%e,
+                    "upstream image failed; retrying next pool account"
+                );
+                result = attempt;
+                continue;
+            }
+            _ => {
+                result = attempt;
+                break;
+            }
+        }
+    }
+    let account = used_account;
     let elapsed_ms = t0.elapsed().as_millis();
     drop(permit);
 
