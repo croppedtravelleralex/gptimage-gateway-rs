@@ -42,17 +42,16 @@ for line in login.stdout.splitlines():
     if "gws_session" in line:
         gw_token = line.split()[-1]
 
-def main() -> int:
-    env_path = ROOT / ".env"
-    pg = secrets.token_hex(16)
-    jwt = secrets.token_hex(32)
-    if env_path.exists():
-        existing = env_path.read_text()
-        for line in existing.splitlines():
-            if line.startswith("POSTGRES_PASSWORD="):
-                pg = line.split("=", 1)[1].strip()
-            if line.startswith("JWT_SECRET="):
-                jwt = line.split("=", 1)[1].strip()
+env_path = ROOT / ".env"
+pg = secrets.token_hex(16)
+jwt = secrets.token_hex(32)
+if env_path.exists():
+    for line in env_path.read_text().splitlines():
+        if line.startswith("POSTGRES_PASSWORD="):
+            pg = line.split("=", 1)[1].strip()
+        if line.startswith("JWT_SECRET="):
+            jwt = line.split("=", 1)[1].strip()
+
 text = f"""TNEXUS_IMAGE=ghcr.io/croppedtravelleralex/tnexus:latest
 POSTGRES_PASSWORD={pg}
 DATABASE_URL=postgres://tnexus:{pg}@127.0.0.1:5433/tnexus
@@ -75,7 +74,6 @@ BOOTSTRAP_DEMO_PASSWORD=123456
 PRESIGN_TTL_SECS=1800
 """
 
-env_path = ROOT / ".env"
 env_path.write_text(text)
 env_path.chmod(0o600)
 print(f"wrote {env_path} token_len={len(gw_token)}")
