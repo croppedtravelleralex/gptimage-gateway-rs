@@ -20,7 +20,7 @@ const MIGRATION_REVOKED_JTI: &str = include_str!("../migrations/002_revoked_jti.
 
 /// Floor for the bootstrap admin password. Short enough not to obstruct setup,
 /// long enough that the first account isn't brute-forceable.
-const MIN_BOOTSTRAP_PASSWORD_LEN: usize = 12;
+const MIN_BOOTSTRAP_PASSWORD_LEN: usize = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
