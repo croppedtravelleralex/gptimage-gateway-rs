@@ -30,6 +30,9 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
+hmac = "0.12"
+sha2 = "0.10"
+hex = { workspace = true }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

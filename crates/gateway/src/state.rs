@@ -1,6 +1,7 @@
 //! Shared gateway application state.
 
 use crate::config::DataPlane;
+use crate::image_assets::ImageAssetStore;
 use auth::AuthService;
 use helper_client::{HelperClient, PinAccount};
 use std::collections::HashMap;
@@ -20,4 +21,6 @@ pub struct AppState {
     pub image_enabled: bool,
     pub auth: Arc<AuthService>,
     pub static_dir: Option<PathBuf>,
+    pub image_assets: Arc<ImageAssetStore>,
+    pub public_base_url: String,
 }

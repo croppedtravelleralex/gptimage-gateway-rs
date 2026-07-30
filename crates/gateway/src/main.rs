@@ -3,9 +3,11 @@
 mod auth_routes;
 mod backend_routes;
 mod config;
+mod image_assets;
 mod state;
 mod upstream_face;
 
+use crate::image_assets::ImageAssetStore;
 use anyhow::Context;
 use auth::{AuthConfig, AuthService};
 use auth_routes::{
@@ -14,7 +16,7 @@ use auth_routes::{
 };
 use axum::{
     body::Body,
-    extract::State,
+    extract::{Path, Query, State},
     http::{header, HeaderMap, Method, StatusCode},
     middleware,
     response::{IntoResponse, Response},
@@ -29,8 +31,9 @@ use helper_client::{
     HelperClient, ImageRunRequest, PinAccount, QuotaRefreshRequest, TextRunRequest,
 };
 use protocol::{
-    chat_completion_response, classify_fault, image_generation_response, openai_error,
-    ChatCompletionRequest, ImageEditRequest, ImageGenerationRequest,
+    chat_completion_response, classify_fault, image_generation_response,
+    image_generation_url_response, openai_error, ChatCompletionRequest, ImageEditRequest,
+    ImageGenerationRequest,
 };
 use serde_json::{json, Value};
 use state::AppState;
@@ -44,6 +47,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 /// Build the CORS layer from a comma-separated origin allowlist.
 ///
@@ -128,6 +132,13 @@ async fn main() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .filter(|p| p.is_dir());
 
+    let asset_secret = image_assets::asset_signing_secret_from_env()
+        .context("image asset signing secret")?;
+    let image_assets = Arc::new(ImageAssetStore::new(
+        asset_secret,
+        image_assets::asset_ttl_secs_from_env(),
+    ));
+
     let state = Arc::new(AppState {
         helper,
         data_plane: cfg.data_plane,
@@ -140,6 +151,8 @@ async fn main() -> anyhow::Result<()> {
         image_enabled: cfg.image_enabled,
         auth: auth_svc,
         static_dir: static_dir.clone(),
+        image_assets,
+        public_base_url: cfg.public_base_url.clone(),
     });
 
     let auth_public = Router::new()
@@ -176,6 +189,10 @@ async fn main() -> anyhow::Result<()> {
     let mut app = Router::new()
         .route("/health", get(health))
         .route("/api/backend/capabilities", get(capabilities))
+        .route(
+            "/v1/images/assets/{asset_id}",
+            get(get_image_asset),
+        )
         .nest("/api/auth", auth_public.merge(auth_protected))
         .nest("/api/admin", admin_api)
         .nest("/v1", member_api.merge(admin_v1))
@@ -644,6 +661,58 @@ async fn image_generations(
 
     match result {
         Ok(r) if r.ok => {
+            let want_url = image_assets::wants_url_response(&req.response_format);
+            if want_url {
+                let bytes = if let Some(b64) = r.b64_json.as_deref() {
+                    match BASE64.decode(b64) {
+                        Ok(b) if b.len() >= 256 => b,
+                        Ok(_) => {
+                            return err(
+                                StatusCode::BAD_GATEWAY,
+                                "empty/short image payload from bridge",
+                                "empty_image",
+                                Some("self"),
+                            );
+                        }
+                        Err(e) => {
+                            return err(
+                                StatusCode::BAD_GATEWAY,
+                                format!("invalid b64_json from bridge: {e}"),
+                                "empty_image",
+                                Some("self"),
+                            );
+                        }
+                    }
+                } else {
+                    return err(
+                        StatusCode::BAD_GATEWAY,
+                        "bridge returned no image payload for url response",
+                        "empty_image",
+                        Some("self"),
+                    );
+                };
+                match build_image_asset_url(&st, &headers, bytes) {
+                    Ok(url) => {
+                        info!(
+                            email=%account.email,
+                            elapsed_ms,
+                            url_len=url.len(),
+                            "image ok (url)"
+                        );
+                        return (StatusCode::OK, Json(image_generation_url_response(&url)))
+                            .into_response();
+                    }
+                    Err(e) => {
+                        return err(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            e.to_string(),
+                            "image_url_failed",
+                            Some("self"),
+                        );
+                    }
+                }
+            }
+
             let b64 = r.b64_json.unwrap_or_default();
             if b64.len() < 1000 {
                 return err(
@@ -725,6 +794,24 @@ fn err(
     (status, Json(body)).into_response()
 }
 
+fn build_image_asset_url(
+    st: &AppState,
+    headers: &HeaderMap,
+    bytes: Vec<u8>,
+) -> anyhow::Result<String> {
+    let base = image_assets::resolve_public_base(&st.public_base_url, headers)?;
+    let (id, exp, sig) = st.image_assets.store(bytes);
+    Ok(st.image_assets.public_url(&base, id, exp, &sig))
+}
+
+async fn get_image_asset(
+    State(st): State<Arc<AppState>>,
+    Path(asset_id): Path<Uuid>,
+    Query(query): Query<image_assets::AssetQuery>,
+) -> Response {
+    image_assets::serve_image_asset(&st.image_assets, asset_id, query)
+}
+
 #[cfg(test)]
 mod auth_integration {
     use super::*;
@@ -735,6 +822,13 @@ mod auth_integration {
     use std::collections::HashMap;
     use tokio::sync::Semaphore;
     use tower::ServiceExt;
+
+    fn test_image_assets() -> Arc<image_assets::ImageAssetStore> {
+        Arc::new(image_assets::ImageAssetStore::new(
+            b"test-image-asset-signing-secret!!".to_vec(),
+            3600,
+        ))
+    }
 
     fn test_app_state() -> Arc<AppState> {
         let path = std::env::temp_dir().join(format!("gw-auth-{}.db", uuid::Uuid::new_v4()));
@@ -770,6 +864,8 @@ mod auth_integration {
             image_enabled: false,
             auth,
             static_dir: None,
+            image_assets: test_image_assets(),
+            public_base_url: "http://127.0.0.1:8014".into(),
         })
     }
 
@@ -808,6 +904,8 @@ mod auth_integration {
             image_enabled: false,
             auth,
             static_dir: None,
+            image_assets: test_image_assets(),
+            public_base_url: "http://127.0.0.1:8014".into(),
         });
         let app = Router::new()
             .route("/guarded", get(|| async { "ok" }))
@@ -919,6 +1017,8 @@ mod auth_integration {
             image_enabled: true,
             auth,
             static_dir: None,
+            image_assets: test_image_assets(),
+            public_base_url: "http://127.0.0.1:8014".into(),
         });
         let me_app = Router::new()
             .route("/me", get(me))

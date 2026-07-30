@@ -135,6 +135,13 @@ pub fn image_generation_response(b64: &str) -> Value {
     })
 }
 
+pub fn image_generation_url_response(url: &str) -> Value {
+    json!({
+        "created": chrono_secs(),
+        "data": [{ "url": url }]
+    })
+}
+
 fn chrono_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

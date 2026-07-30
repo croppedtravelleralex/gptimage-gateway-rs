@@ -59,6 +59,7 @@ pub struct Config {
     pub image_global_concurrency: usize,
     pub image_sem: Arc<Semaphore>,
     pub image_enabled: bool,
+    pub public_base_url: String,
 }
 
 pub fn load() -> Result<Config> {
@@ -100,6 +101,11 @@ pub fn load() -> Result<Config> {
 
     let account_email_log = account.email.clone();
     let image_sem = Arc::new(Semaphore::new(image_global_concurrency));
+    let public_base_url = env::var("GATEWAY_PUBLIC_BASE_URL")
+        .unwrap_or_default()
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
     Ok(Config {
         listen,
         helper_url,
@@ -111,6 +117,7 @@ pub fn load() -> Result<Config> {
         image_global_concurrency,
         image_sem,
         image_enabled,
+        public_base_url,
     })
 }
 
